@@ -1,0 +1,9 @@
+duration(s),mode(str),current(A),voltage(V),cutoff_current(A),thermal_system_on(str),temperature_setpoint(degC)
+10.0,CHARGE,5,55.0,4.0,ON,45.0
+10.0,REST,,,,ON,45.0
+10.0,DISCHARGE,5,40.0,3.0,ON,45.0
+10.0,REST,,,,ON,45.0
+600.0,CHARGE,5,49.5,2.0,ON,45.0
+10.0,REST,,,,ON,45.0
+10.0,DISCHARGE,5,40.0,1.0,ON,45.0
+10.0,REST,,,,ON,45.0
