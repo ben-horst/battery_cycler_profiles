@@ -108,14 +108,19 @@ def validate_csv(
         for index, row in data.iterrows():
             if row['identifier'] == '/battery_monitor.zip_battery_telemetry':
                 pack_current = row['pack_current']
-                i = 1
-                while data.iloc[index+i]['identifier'] != '/shunt.status':
-                    i += 1
-                shunt_current = data.iloc[index+i]['current']
-                current_error.append(pack_current - shunt_current)
-        max_current_error = max(current_error)
+                i = 0
+                while index+i < len(data):
+                    if data.iloc[index+i]['identifier'] == '/shunt.status':
+                        shunt_current = data.iloc[index+i]['current']
+                        current_error.append(shunt_current - pack_current)
+                        break
+                    else:
+                        i += 1
+                
+        
+        max_current_error = max(current_error, key=abs)
         current_error_criteria = 5.0
-        current_error_okay = max_current_error < current_error_criteria
+        current_error_okay = abs(max_current_error) < current_error_criteria
 
         #evaluate overall test pass
         test_passed = all([max_voltage_okay,
@@ -146,7 +151,7 @@ def validate_csv(
     validator_result_dict["missing_temperatures"] = asdict(ValidateItem(value=missing_temperatures_str, type="str", criteria="x == 'none'", units="status"))
     logger.debug(f"missing_temperatures: {missing_temperatures_str}")
 
-    validator_result_dict["max_current_error"] = asdict(ValidateItem(value=max_current_error, type="float", criteria=f"x<{current_error_criteria}", units="A"))
+    validator_result_dict["max_current_error"] = asdict(ValidateItem(value=max_current_error, type="float", criteria=f"-{current_error_criteria}<x<{current_error_criteria}", units="A"))
     logger.debug(f"max_current_error: {max_current_error}")
 
     # (Do not modify) Save the validation result to a JSON file
