@@ -1,3 +1,1 @@
 duration(s),mode(str),current(A),voltage(V),cutoff_current(A),thermal_system_on(str),temperature_setpoint(degC),step_name(str)
-3600.0,CHARGE,25,53.0,5.0,OFF,45.0,25A_charge_to_53V
-
