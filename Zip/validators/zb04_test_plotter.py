@@ -31,9 +31,10 @@ small_pulse_data = data['small_pulse_data']
 large_pulse_data = data['large_pulse_data']
 
 large_pulse_data = pd.DataFrame(large_pulse_data)
+print(large_pulse_data)
 
-delay = 3
-dcir_curve, pulse_starts, pulse_ends = generate_dcir_durve(large_pulse_data, delay)
+dcir_4C_1s, _, _ = generate_dcir_durve(large_pulse_data, 1)
+dcir_4C_10s, _, _ = generate_dcir_durve(large_pulse_data, 10)
 
 discharge_data = pd.DataFrame(discharge_data)
 charge_data = pd.DataFrame(charge_data)
@@ -48,17 +49,13 @@ plt.legend()
 plt.title('C/5 Charge/Discharge')
 
 plt.figure()
-plt.plot(large_pulse_data['soc'], large_pulse_data['dcir'], label='4C/6s - raw')
-plt.plot(pulse_ends['soc'], pulse_ends['dcir'], label='pulse ends')
-plt.plot(pulse_starts['soc'], pulse_starts['dcir'], label='pulse starts')
-plt.plot(dcir_curve['soc'], dcir_curve['dcir'], label=f'pulse starts + {delay} seconds')
-#plt.plot(large_pulse_data['soc'], large_pulse_data['dcir'], label='4C/6s - raw')
-#plt.plot(large_pulse_data['soc'], large_pulse_data['dcir_smoothed'], label='4C/6s - smoothed')
+plt.plot(dcir_4C_1s['consumed_ah'], dcir_4C_1s['dcir'], label='4C/1s')
+plt.plot(dcir_4C_10s['consumed_ah'], dcir_4C_10s['dcir'], label='4C/10s')
 plt.gca().invert_xaxis()
 plt.legend()
-plt.xlabel('SOC')
-plt.ylabel('DCIR')
-plt.title('Discharge Pulse DCIR')
+plt.xlabel('consumed Ah')
+plt.ylabel('resistance')
+plt.title('DCIR')
 
 
 plt.show()
