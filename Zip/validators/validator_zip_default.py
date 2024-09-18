@@ -4,11 +4,16 @@ import logging
 import os
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import click
 import pandas as pd
+import numpy as np
 import math
+import matplotlib.pyplot as plt
+import datetime
+
+pd.options.mode.copy_on_write = True
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +25,21 @@ class ValidateItem:
     criteria: Optional[str] = None
     units: Optional[str] = None
 
+@dataclass
+class AttachFile:
+    key: str
+    file_path: str
+
+ATTACHED_FILE_KEY = "attached_file"
+ATTACHED_FILE_DIRECTORY = "/tmp/zipline-htf/attached_files"
 
 validator_result_dict: Dict[str, Dict] = {}
+attached_files: List[AttachFile] = []
 
-
+IDEAL_CAPACITY = 4.5*6    #battery capacity in Ah
 
 #test run with:
-#sudo python3 validators/validator_ZB04.py --csv_file sample_logs/ZB04_sample_log.csv --validator_result_json sample_logs/test_json.json
+#sudo python validators/validator_zip_default.py --csv_file sample_logs/ZB08_sample_log.csv --validator_result_json sample_logs/test_json.json
 
 # ------------------------------------------------
 # Validation function (modify this function)
@@ -49,6 +62,10 @@ def validate_csv(
     chunk_count = 0
     #---validation tests---
     row_count = 0
+    start_time = 2000000000
+    end_time = 0
+
+    all_battery_data = pd.DataFrame()   #all useful battery data in the csv file
     
     #pack min & max voltages - must be 35 V - 59 V
     chunks_max_voltage = []     #list of max voltage at each chunk
@@ -58,7 +75,7 @@ def validate_csv(
 
     #brick delta - difference between bricks can not exceed 50 mV
     chunks_max_brick_delta = []     #list of max brick delta at each chunk
-    BRICK_DELTA_CRITERIA = 0.10
+    BRICK_DELTA_CRITERIA = 0.05
 
     #cell min & max voltages - must be 2.5 V - 4.21 V
     chunks_max_brick_voltage = []     #list of max cell voltage at each chunk
@@ -77,27 +94,33 @@ def validate_csv(
     #current error - difference between pack current and shunt current cannot exceed
     CURRENT_SAMPLING_INTERVAL = 1.0      #interval to average current measurements over to compare pack and shunt
     CURRENT_ERROR_CRITERIA = 5.0
-    current_sampling_data = pd.DataFrame(columns=['time','pack_current', 'shunt_current'])
-
-    with open(csv_file, "r") as f:
-        reader = csv.DictReader(f)
-        row_count = sum(1 for row in reader)
-        if row_count == 0:
-            logger.error(f"{csv_file} has 0 rows")
-            test_passed = False
-        logger.debug(f"row_count: {row_count}")
+    current_sampling_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
         
+    #read csv file into pandas dataframe, chunk by chunk
+    data_iterator = pd.read_csv(csv_file, chunksize=CSV_CHUNK_SIZE_ROWS)
+    
+    # Process each chunk
+    # for data in data_iterator:
+    for iteration, data in enumerate(data_iterator, start=0):
+        logger.debug(f"Processing chunk {iteration}")
+        row_count += len(data)
+        start_time = min(start_time, data['approx_realtime_sec'].min())
+        end_time = max(end_time, data['approx_realtime_sec'].max())
 
-        #read csv file into pandas dataframe, chunk by chunk
-        data_iterator = pd.read_csv(csv_file, chunksize=CSV_CHUNK_SIZE_ROWS)
+        # Remove rows where 'step_name' is 'Unknown'
+        data = data[data['step_name'] != 'Unknown']
 
-        # Process each chunk
-        # for data in data_iterator:
-        for iteration, data in enumerate(data_iterator, start=0):
-            logger.debug(f"Processing chunk {iteration}")
-
-            #find all rows where the identifier is /battery_monitor.zip_battery_telemetry
-            battery_monitor_data = data[data['identifier'] == '/battery_monitor.zip_battery_telemetry']
+        if not data.empty:
+            
+            #find all rows where the identifier is /battery_monitor.zip_battery_telemetry and are relevant columns
+            relevant_columns = ['step_name','approx_realtime_sec','pack_voltage','pack_current','shunt_temperature',
+                                'pack_temperature[0]','pack_temperature[1]','pack_temperature[2]','pack_temperature[3]',
+                                'pack_temperature[4]','pack_temperature[5]','brick_voltage[0]','brick_voltage[1]',
+                                'brick_voltage[2]','brick_voltage[3]','brick_voltage[4]','brick_voltage[5]','brick_voltage[6]',
+                                'brick_voltage[7]','brick_voltage[8]','brick_voltage[9]','brick_voltage[10]','brick_voltage[11]',
+                                'brick_voltage[12]','brick_voltage[13]']
+            battery_monitor_data = data[(data['identifier'] == '/battery_monitor.zip_battery_telemetry')][relevant_columns]
+            all_battery_data = pd.concat([all_battery_data, battery_monitor_data])
 
             #find max and min pack voltage at anytime in this chunk of data
             max_voltage = battery_monitor_data['pack_voltage'].max()
@@ -155,21 +178,14 @@ def validate_csv(
                 overall_missing_temperatures.add(temp)
 
             #compare pack current measurements to current shunt measurements
-            first_time = math.ceil(data['approx_realtime_sec'].min() / CURRENT_SAMPLING_INTERVAL) * CURRENT_SAMPLING_INTERVAL   #round up to the nearest interval
-            last_time = math.floor(data['approx_realtime_sec'].max() / CURRENT_SAMPLING_INTERVAL) * CURRENT_SAMPLING_INTERVAL   #round down to the nearest interval
-            t = first_time
-            while t <= last_time:
-                avg_pack_current = data[(data['approx_realtime_sec'] >= t) & (data['approx_realtime_sec'] < t+CURRENT_SAMPLING_INTERVAL) & (data['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_current'].mean()
-                avg_shunt_current = data[(data['approx_realtime_sec'] >= t) & (data['approx_realtime_sec'] < t+CURRENT_SAMPLING_INTERVAL) & (data['identifier'] == '/htf.shunt.status')]['current'].mean()
-                new_row = {'time': [t], 'pack_current': [avg_pack_current], 'shunt_current': [avg_shunt_current]}
-                current_sampling_data = pd.concat([current_sampling_data, pd.DataFrame(new_row)])
-                t += CURRENT_SAMPLING_INTERVAL
-            # perform moving average on 'pack_current'
-            current_sampling_data['pack_current_smoothed'] = current_sampling_data['pack_current'].rolling(window=10).mean()
-            current_sampling_data['shunt_current_smoothed'] = current_sampling_data['shunt_current'].rolling(window=10).mean()
-            current_sampling_data['current_error'] = current_sampling_data['shunt_current_smoothed'] - current_sampling_data['pack_current_smoothed']
-        
-            current_error_okay = current_sampling_data[(current_sampling_data['time'] >= first_time) & (current_sampling_data['time'] <= last_time)]['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+            current_sampling_data = perform_average_and_update_data(data, '', CURRENT_SAMPLING_INTERVAL)
+            if not current_sampling_data.empty:
+                current_sampling_data['pack_current_smoothed'] = current_sampling_data['pack_current'].rolling(window=10).mean()
+                current_sampling_data['shunt_current_smoothed'] = current_sampling_data['shunt_current'].rolling(window=10).mean()
+                current_sampling_data['current_error'] = current_sampling_data['shunt_current_smoothed'] - current_sampling_data['pack_current_smoothed']
+                current_error_okay = current_sampling_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+            else:
+                current_error_okay = True
 
             #evaluate chunk test pass
             chunk_passed = all([max_voltage_okay,
@@ -181,40 +197,56 @@ def validate_csv(
                         all_temperatures_okay, 
                         current_error_okay,
                             ])
-            
-            chunks_passed.append(chunk_passed)
-            chunk_count += 1
-            
-            if not chunk_passed:
-                fail_reason = ((not max_voltage_okay) * 'max voltage exceeded, ') + ((not min_voltage_okay) * 'min voltage exceeded, ') + ((not brick_delta_okay) * 'brick delta exceeded, ') + ((not max_brick_voltage_okay) * 'max brick voltage exceeded, ') + ((not min_brick_voltage_okay) * 'min brick voltage exceeded, ') + ((not all_brick_voltages_okay) * 'brick voltages not numeric, ') + ((not all_temperatures_okay) * 'temperatures not numeric, ') + ((not current_error_okay) * 'current error exceeded, ')
-                fail_reason = fail_reason[:-2]
-                logger.error(f"Test failed on chunk {iteration}: {fail_reason}")
+        
+        else:   #if the chunk is empty, all parsing is skipped and the chunk is a pass
+            print('empty chunk')
+            chunk_passed = True
+        
+        chunks_passed.append(chunk_passed)
+        chunk_count += 1
+        
+        if not chunk_passed:
+            fail_reason = ((not max_voltage_okay) * 'max voltage exceeded, ') + ((not min_voltage_okay) * 'min voltage exceeded, ') + ((not brick_delta_okay) * 'brick delta exceeded, ') + ((not max_brick_voltage_okay) * 'max brick voltage exceeded, ') + ((not min_brick_voltage_okay) * 'min brick voltage exceeded, ') + ((not all_brick_voltages_okay) * 'brick voltages not numeric, ') + ((not all_temperatures_okay) * 'temperatures not numeric, ') + ((not current_error_okay) * 'current error exceeded, ')
+            fail_reason = fail_reason[:-2]
+            logger.error(f"Test failed on chunk {iteration}: {fail_reason}")
         
 
     #compile overall validation test results
+    all_battery_data['time_offset'] = all_battery_data['approx_realtime_sec'] - start_time
+    total_seconds = int(end_time - start_time)
+    elapsed_time = str(datetime.timedelta(seconds=total_seconds))
+
     num_chunks_passed = sum(chunks_passed)
     logger.debug(f"Number of chunks passed: {num_chunks_passed}/{chunk_count}")
+
     overall_max_voltage = max(chunks_max_voltage)
     overall_max_voltage_okay = overall_max_voltage < MAX_VOLTAGE_CRITERIA
     logger.debug(f"Max voltage okay: {overall_max_voltage_okay}")
+
     overall_min_voltage = min(chunks_min_voltage)
     overall_min_voltage_okay = overall_min_voltage > MIN_VOLTAGE_CRITERIA
     logger.debug(f"Min voltage okay: {overall_min_voltage_okay}")
+
     overall_max_brick_delta = max(chunks_max_brick_delta)
     overall_brick_delta_okay = overall_max_brick_delta < BRICK_DELTA_CRITERIA
     logger.debug(f"Brick delta okay: {overall_brick_delta_okay}")
+
     overall_missing_brick_voltages_str = ','.join(str(brick) for brick in overall_missing_brick_voltages) if overall_missing_brick_voltages else 'none'         #turn the set into a string to be uploaded, if empty make it 'none'
     overall_all_brick_voltages_okay = not bool(overall_missing_brick_voltages)  #true if this set is empty (no missing bricks)
     logger.debug(f"Brick voltages okay: {overall_all_brick_voltages_okay}")
+
     overall_max_brick_voltage = max(chunks_max_brick_voltage)
     overall_max_brick_voltage_okay = overall_max_brick_voltage < MAX_BRICK_VOLTAGE_CRITERIA
     logger.debug(f"Max brick voltage okay: {overall_max_brick_voltage_okay}")
+
     overall_min_brick_voltage = min(chunks_min_brick_voltage)
     overall_min_brick_voltage_okay = overall_min_brick_voltage > MIN_BRICK_VOLTAGE_CRITERIA
     logger.debug(f"Min brick voltage okay: {overall_min_brick_voltage_okay}")
+
     overall_missing_temperatures_str = ','.join(str(temp) for temp in overall_missing_temperatures) if overall_missing_temperatures else 'none'         #turn the set into a string to be uploaded, if empty make it 'none'
     overall_all_temperatures_okay = not bool(overall_missing_temperatures)  #true if this set is empty (no missing temperatures)
     logger.debug(f"Temperatures okay: {overall_all_temperatures_okay}")
+
     overall_max_current_error = current_sampling_data['current_error'].abs().max()
     overall_current_error_okay = overall_max_current_error < CURRENT_ERROR_CRITERIA
     logger.debug(f"Max current error okay: {overall_current_error_okay}")
@@ -228,11 +260,32 @@ def validate_csv(
                         overall_all_temperatures_okay,
                         overall_current_error_okay,
                             ])
+    
+
+    # Export data to a file
+    import pickle
+    with open("validation_data.pkl", "wb") as f:    #this is where to put any computed dataframes or variables that need to be saved
+        pickle.dump({
+            "current_sampling_data": current_sampling_data
+        }, f)
+
+    with open("battery_telemetry_data.pkl", "wb") as f:     #this exports all the releveant battery telemetry data
+        pickle.dump({
+            "all_battery_data": all_battery_data
+        }, f)
+    
+    try:
+        generate_plots(all_battery_data)
+    except Exception as e:
+        logger.error(f"Failed to generate plots: {e}")
 
 
     # Please use the ValidateItem dataclass to store the validation results
     validator_result_dict["csv_row_count"] = asdict(ValidateItem(value=row_count, type="int", criteria="x>0", units="rows"))
     logger.debug(f"csv_row_count: {row_count}")
+
+    validator_result_dict["elapsed_time"] = asdict(ValidateItem(value=elapsed_time, type="str", criteria="len(x)>0", units="hh:mm:ss"))
+    logger.debug(f"elapsed_time: {elapsed_time}")
 
     validator_result_dict["max_voltage"] = asdict(ValidateItem(value=overall_max_voltage, type="float", criteria=f"x<{MAX_VOLTAGE_CRITERIA}", units="V"))
     logger.debug(f"max_voltage: {overall_max_voltage}")
@@ -257,11 +310,92 @@ def validate_csv(
 
     validator_result_dict["max_current_error"] = asdict(ValidateItem(value=overall_max_current_error, type="float", criteria=f"-{CURRENT_ERROR_CRITERIA}<x<{CURRENT_ERROR_CRITERIA}", units="A"))
     logger.debug(f"max_current_error: {overall_max_current_error}")
+    
+    plot_file_name = 'plot1.png'
+    plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
+    attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=plot_file_path))
+    
+    validation_data_file_name = 'validation_data.pkl'
+    validation_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, validation_data_file_name)
+    attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=validation_data_file_path))
+
+    battery_telemetry_data_file_name = 'battery_telemetry_data.pkl'
+    battery_telemetry_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, battery_telemetry_data_file_name)
+    attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=battery_telemetry_data_file_path))
 
     # (Do not modify) Save the validation result to a JSON file
     save_validation_result(overall_test_passed, validator_result_json)
 
     return overall_test_passed
+
+def perform_average_and_update_data(data, stepname, sampling_interval):
+    #find all rows with the stepname and then transform the data onto a timeseries with the specified sampling interval, averaging the data within each interval
+    all_rows = data[data['step_name'].str.contains(stepname)]
+    averaged_data = pd.DataFrame()
+    if not all_rows.empty:
+        first_time = math.ceil(all_rows['approx_realtime_sec'].min() / sampling_interval) * sampling_interval   #round up to the nearest interval
+        last_time = math.floor(all_rows['approx_realtime_sec'].max() / sampling_interval) * sampling_interval   #round down to the nearest interval
+        t = first_time
+        while t <= last_time:
+            shunt_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['current'].mean()
+            pack_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_current'].mean()
+            shunt_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['voltage'].mean()
+            pack_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_voltage'].mean()
+            amp_s = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['current_counter'].mean()
+            new_row = {'time': [t], 'amp-s': [amp_s], 'shunt_current': [shunt_current], 'pack_current': [pack_current], 'pack_voltage': [pack_voltage], 'shunt_voltage': [shunt_voltage]}
+            averaged_data = pd.concat([averaged_data, pd.DataFrame(new_row)])
+            t += sampling_interval
+    return averaged_data
+
+def find_initial_amp_s(data, stepname, direction, current_initial_amp_s):
+    #find rows where the identifier and search for either the max or min amp_s value, depending on direction
+    amp_s = data[(data['step_name'] == stepname) & (data['identifier'] == '/htf.shunt.status')]['current_counter']
+    if amp_s is not None:
+        if direction == 'max':
+            return max(current_initial_amp_s, amp_s.max())
+        elif direction == 'min':
+            return min(current_initial_amp_s, amp_s.min())
+        
+def calculate_soc(data, amp_s_at_100soc, capacity, nameplate_capacity):
+    consumed_ah = (amp_s_at_100soc - data['amp-s']) / 3600
+    soc_real = 100 * (1 - (consumed_ah / capacity))
+    soc_ideal = 100 * (1 - (consumed_ah / nameplate_capacity))
+    return soc_real, soc_ideal, consumed_ah
+
+
+def generate_plots(data):
+    #Suppress logs from specific modules that are loud and not useful.
+    try:
+        suppress_logger = logging.getLogger('matplotlib')
+        suppress_logger.setLevel(logging.CRITICAL)
+        suppress_logger = logging.getLogger('PIL.PngImagePlugin')
+        suppress_logger.setLevel(logging.CRITICAL)
+    except Exception as e:
+        pass
+
+    plt.figure()
+    ax1 = plt.subplot(311)
+    ax1.plot(data['time_offset'], data['pack_voltage'], label='Pack Voltage')
+    ax1.set_ylabel('Voltage (V)')
+    ax1.set_title('Pack Voltage')
+    ax2 = plt.subplot(312, sharex=ax1)
+    ax2.plot(data['time_offset'], data['pack_current'], label='Pack Current')
+    ax2.set_ylabel('Current (A)')
+    ax2.set_title('Pack Current')
+    ax3 = plt.subplot(313, sharex=ax1)
+    ax3.plot(data['time_offset'], data['pack_temperature[0]'], label='Cell Temperature 0')
+    ax3.plot(data['time_offset'], data['pack_temperature[1]'], label='Cell Temperature 1')
+    ax3.plot(data['time_offset'], data['pack_temperature[2]'], label='Cell Temperature 2')
+    ax3.plot(data['time_offset'], data['pack_temperature[3]'], label='Cell Temperature 3')
+    ax3.plot(data['time_offset'], data['pack_temperature[4]'], label='Cell Temperature 4')
+    ax3.plot(data['time_offset'], data['pack_temperature[5]'], label='Cell Temperature 5')
+    ax3.legend()
+    ax3.set_ylabel('Temperature (C)')
+    ax3.set_title('Cell Temperatures')
+    plt.xlabel('Time (s)')
+    plt.tight_layout()
+    plt.gcf().set_size_inches(10, 10)
+    plt.savefig('plot1.png')
 
 
 # ------------------------------------------------
@@ -296,6 +430,11 @@ def save_validation_result(
             value=validation_result, type="bool", criteria="x==True", units="status"
         )
     )
+     # Add the attached files to the dictionary
+    for attached_file in attached_files:
+        validator_result_dict[attached_file.key] = asdict(
+            ValidateItem(value=attached_file.file_path, type="str")
+        )
     # Write the dictionary to a JSON file
     with open(validator_result_json, "w") as f:
         json.dump(validator_result_dict, f)

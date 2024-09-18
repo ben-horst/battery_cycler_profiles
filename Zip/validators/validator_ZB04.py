@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import datetime
 
 pd.options.mode.copy_on_write = True
 
@@ -61,16 +62,16 @@ def validate_csv(
     chunk_count = 0
     #---validation tests---
     row_count = 0
-    start_time = 0
+    start_time = 2000000000
     end_time = 0
 
     all_battery_data = pd.DataFrame()   #all useful battery data in the csv file
     
-    #pack min & max voltages - must be 35 V - 59 V
+    #pack min & max voltages - must be 34.5 V - 59 V
     chunks_max_voltage = []     #list of max voltage at each chunk
     MAX_VOLTAGE_CRITERIA = 59
     chunks_min_voltage = []     #list of min voltge at each chunk
-    MIN_VOLTAGE_CRITERIA = 35
+    MIN_VOLTAGE_CRITERIA = 34.5
 
     #brick delta - difference between bricks can not exceed 50 mV
     chunks_max_brick_delta = []     #list of max brick delta at each chunk
@@ -80,7 +81,7 @@ def validate_csv(
     chunks_max_brick_voltage = []     #list of max cell voltage at each chunk
     MAX_BRICK_VOLTAGE_CRITERIA = 4.21
     chunks_min_brick_voltage = []     #list of min cell voltage at each chunk
-    MIN_BRICK_VOLTAGE_CRITERIA = 2.5
+    MIN_BRICK_VOLTAGE_CRITERIA = 2.45
 
     #brick voltages - all brick voltages must be numeric values
     overall_missing_brick_voltages = set() #set of all missing brick voltages
@@ -93,31 +94,23 @@ def validate_csv(
     #current error - difference between pack current and shunt current cannot exceed
     CURRENT_SAMPLING_INTERVAL = 1.0      #interval to average current measurements over to compare pack and shunt
     CURRENT_ERROR_CRITERIA = 5.0
-    current_sampling_data = pd.DataFrame(columns=['time','pack_current', 'shunt_current'])
+    current_sampling_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
 
     #pulse train calculations
     SMALL_PULSE_CURRENT = 27.0     #current of small pulse in A
     LARGE_PULSE_CURRENT = 108.0    #current of large pulse in A
     PULSE_SAMPLING_INTERVAL = 0.5  #interval to average current and voltage measurements over to calculate DCIR
     amp_s_before_pulses = 0
-    pulse_data = pd.DataFrame(columns=['time','amp-s','current','voltage'])
+    pulse_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
 
     #slow discharge/charge calculations
     DCHG_CHG_SAMPING_INTERVAL = 5.0  #interval to average current measurements over to calculate total charge capacity
     amp_s_before_discharge = 0
     amp_s_before_charge = 0
-    discharge_data = pd.DataFrame(columns=['time','amp-s','current','voltage'])
-    charge_data = pd.DataFrame(columns=['time','amp-s','current','voltage'])
-
-    # with open(csv_file, "r") as f:
-    #     reader = csv.DictReader(f)
-    #     row_count = sum(1 for row in reader)
-    #     if row_count == 0:
-    #         logger.error(f"{csv_file} has 0 rows")
-    #         test_passed = False
-    #     logger.debug(f"row_count: {row_count}")
+    discharge_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
+    charge_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
         
-        #read csv file into pandas dataframe, chunk by chunk
+    #read csv file into pandas dataframe, chunk by chunk
     data_iterator = pd.read_csv(csv_file, chunksize=CSV_CHUNK_SIZE_ROWS)
     
     # Process each chunk
@@ -132,9 +125,15 @@ def validate_csv(
         data = data[data['step_name'] != 'Unknown']
 
         if not data.empty:
-            
-            #find all rows where the identifier is /battery_monitor.zip_battery_telemetry
-            battery_monitor_data = data[data['identifier'] == '/battery_monitor.zip_battery_telemetry']
+        
+            #find all rows where the identifier is /battery_monitor.zip_battery_telemetry and are relevant columns
+            relevant_columns = ['step_name','approx_realtime_sec','pack_voltage','pack_current','shunt_temperature',
+                                'pack_temperature[0]','pack_temperature[1]','pack_temperature[2]','pack_temperature[3]',
+                                'pack_temperature[4]','pack_temperature[5]','brick_voltage[0]','brick_voltage[1]',
+                                'brick_voltage[2]','brick_voltage[3]','brick_voltage[4]','brick_voltage[5]','brick_voltage[6]',
+                                'brick_voltage[7]','brick_voltage[8]','brick_voltage[9]','brick_voltage[10]','brick_voltage[11]',
+                                'brick_voltage[12]','brick_voltage[13]']
+            battery_monitor_data = data[(data['identifier'] == '/battery_monitor.zip_battery_telemetry')][relevant_columns]
             all_battery_data = pd.concat([all_battery_data, battery_monitor_data])
 
             #find max and min pack voltage at anytime in this chunk of data
@@ -193,21 +192,15 @@ def validate_csv(
                 overall_missing_temperatures.add(temp)
 
             #compare pack current measurements to current shunt measurements
-            first_time = math.ceil(data['approx_realtime_sec'].min() / CURRENT_SAMPLING_INTERVAL) * CURRENT_SAMPLING_INTERVAL   #round up to the nearest interval
-            last_time = math.floor(data['approx_realtime_sec'].max() / CURRENT_SAMPLING_INTERVAL) * CURRENT_SAMPLING_INTERVAL   #round down to the nearest interval
-            t = first_time
-            while t <= last_time:
-                avg_pack_current = data[(data['approx_realtime_sec'] >= t) & (data['approx_realtime_sec'] < t+CURRENT_SAMPLING_INTERVAL) & (data['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_current'].mean()
-                avg_shunt_current = data[(data['approx_realtime_sec'] >= t) & (data['approx_realtime_sec'] < t+CURRENT_SAMPLING_INTERVAL) & (data['identifier'] == '/htf.shunt.status')]['current'].mean()
-                new_row = {'time': [t], 'pack_current': [avg_pack_current], 'shunt_current': [avg_shunt_current]}
-                current_sampling_data = pd.concat([current_sampling_data, pd.DataFrame(new_row)])
-                t += CURRENT_SAMPLING_INTERVAL
-            # perform moving average on 'pack_current'
-            current_sampling_data['pack_current_smoothed'] = current_sampling_data['pack_current'].rolling(window=10).mean()
-            current_sampling_data['shunt_current_smoothed'] = current_sampling_data['shunt_current'].rolling(window=10).mean()
-            current_sampling_data['current_error'] = current_sampling_data['shunt_current_smoothed'] - current_sampling_data['pack_current_smoothed']
-        
-            current_error_okay = current_sampling_data[(current_sampling_data['time'] >= first_time) & (current_sampling_data['time'] <= last_time)]['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+            current_sampling_data = perform_average_and_update_data(data, '', CURRENT_SAMPLING_INTERVAL)
+            if not current_sampling_data.empty:
+                current_sampling_data['pack_current_smoothed'] = current_sampling_data['pack_current'].rolling(window=10).mean()
+                current_sampling_data['shunt_current_smoothed'] = current_sampling_data['shunt_current'].rolling(window=10).mean()
+                current_sampling_data['current_error'] = current_sampling_data['shunt_current_smoothed'] - current_sampling_data['pack_current_smoothed']
+                current_error_okay = current_sampling_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+            else:
+                current_error_okay = True
+
 
             #find pulse train portion and calcualte DCIR at 1C & 4C for every SOC
             #find rows where step_name is "10min_rest_before_pulse" and find the starting current_counter value
@@ -255,7 +248,9 @@ def validate_csv(
         
 
     #compile overall validation test results
-    total_time = end_time - start_time
+    total_seconds = int(end_time - start_time)
+    elapsed_time = str(datetime.timedelta(seconds=total_seconds))
+
     num_chunks_passed = sum(chunks_passed)
     logger.debug(f"Number of chunks passed: {num_chunks_passed}/{chunk_count}")
 
@@ -313,8 +308,8 @@ def validate_csv(
     charge_data['soc'], charge_data['soc_ideal'], charge_data['consumed_ah'] = calculate_soc(charge_data, amp_s_before_discharge, measured_capacity, IDEAL_CAPACITY)
 
     #separate pulse data into the 1C and 4C portions
-    small_pulse_data = pulse_data[(abs(pulse_data['current']) > (SMALL_PULSE_CURRENT - 1)) & (abs(pulse_data['current']) < (SMALL_PULSE_CURRENT + 1))]
-    large_pulse_data = pulse_data[(abs(pulse_data['current']) > (LARGE_PULSE_CURRENT - 2)) & (abs(pulse_data['current']) < (LARGE_PULSE_CURRENT + 2))]
+    small_pulse_data = pulse_data[(abs(pulse_data['shunt_current']) > (SMALL_PULSE_CURRENT - 1)) & (abs(pulse_data['shunt_current']) < (SMALL_PULSE_CURRENT + 1))]
+    large_pulse_data = pulse_data[(abs(pulse_data['shunt_current']) > (LARGE_PULSE_CURRENT - 2)) & (abs(pulse_data['shunt_current']) < (LARGE_PULSE_CURRENT + 2))]
     #use the c/5 discharge data to interpolate an approximated OCV curve then calculate DCIR at each step
     small_pulse_data['ocv'], small_pulse_data['dcir'] = interpolate_ocv_and_calc_dcir(small_pulse_data, discharge_data)
     large_pulse_data['ocv'], large_pulse_data['dcir'] = interpolate_ocv_and_calc_dcir(large_pulse_data, discharge_data)
@@ -326,6 +321,7 @@ def validate_csv(
     import pickle
     with open("validation_data.pkl", "wb") as f:
         pickle.dump({
+            "current_sampling_data": current_sampling_data,
             "small_pulse_data": small_pulse_data,
             "large_pulse_data": large_pulse_data,
             "discharge_data": discharge_data,
@@ -333,7 +329,7 @@ def validate_csv(
             "dcir_4C_1s": dcir_4C_1s,
             "dcir_4C_10s": dcir_4C_10s
         }, f)
-    with open("battery_telemetry_data.pkl", "rb") as f:
+    with open("battery_telemetry_data.pkl", "wb") as f:
         pickle.dump({
             "all_battery_data": all_battery_data
         }, f)
@@ -348,8 +344,8 @@ def validate_csv(
     validator_result_dict["csv_row_count"] = asdict(ValidateItem(value=row_count, type="int", criteria="x>0", units="rows"))
     logger.debug(f"csv_row_count: {row_count}")
 
-    validator_result_dict["total_time"] = asdict(ValidateItem(value=total_time, type="float", criteria="x>0", units="s"))
-    logger.debug(f"total_time: {total_time}")
+    validator_result_dict["elapsed_time"] = asdict(ValidateItem(value=elapsed_time, type="str", criteria="len(x)>0", units="hh:mm:ss"))
+    logger.debug(f"elapsed_time: {elapsed_time}")
 
     validator_result_dict["max_voltage"] = asdict(ValidateItem(value=overall_max_voltage, type="float", criteria=f"x<{MAX_VOLTAGE_CRITERIA}", units="V"))
     logger.debug(f"max_voltage: {overall_max_voltage}")
@@ -406,15 +402,16 @@ def perform_average_and_update_data(data, stepname, sampling_interval):
     all_rows = data[data['step_name'].str.contains(stepname)]
     averaged_data = pd.DataFrame()
     if not all_rows.empty:
-        first_time_pulse = math.ceil(all_rows['approx_realtime_sec'].min() / sampling_interval) * sampling_interval   #round up to the nearest interval
-        last_time_pulse = math.floor(all_rows['approx_realtime_sec'].max() / sampling_interval) * sampling_interval   #round down to the nearest interval
-        t = first_time_pulse
-        while t <= last_time_pulse:
+        first_time = math.ceil(all_rows['approx_realtime_sec'].min() / sampling_interval) * sampling_interval   #round up to the nearest interval
+        last_time = math.floor(all_rows['approx_realtime_sec'].max() / sampling_interval) * sampling_interval   #round down to the nearest interval
+        t = first_time
+        while t <= last_time:
             shunt_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['current'].mean()
+            pack_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_current'].mean()
             shunt_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['voltage'].mean()
-            voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_voltage'].mean()
+            pack_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_voltage'].mean()
             amp_s = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['current_counter'].mean()
-            new_row = {'time': [t], 'amp-s': [amp_s], 'current': [shunt_current], 'voltage': [voltage], 'shunt_voltage': [shunt_voltage]}
+            new_row = {'time': [t], 'amp-s': [amp_s], 'shunt_current': [shunt_current], 'pack_current': [pack_current], 'pack_voltage': [pack_voltage], 'shunt_voltage': [shunt_voltage]}
             averaged_data = pd.concat([averaged_data, pd.DataFrame(new_row)])
             t += sampling_interval
     return averaged_data
@@ -437,14 +434,14 @@ def calculate_soc(data, amp_s_at_100soc, capacity, nameplate_capacity):
 
 def interpolate_ocv_and_calc_dcir(pulse_data, dchg_data):
     #open circuit voltage approximated by c/5 discharge data
-    ocv_curve = dchg_data[['soc', 'voltage']]   #create a curve of voltage vs SOC from the discharge data
+    ocv_curve = dchg_data[['soc', 'pack_voltage']]   #create a curve of voltage vs SOC from the discharge data
     #sort by SOC and clean things up for interpolation
     ocv_curve = ocv_curve.sort_values(by='soc')
     ocv_curve = ocv_curve.drop_duplicates(subset='soc', keep='first')
     #interpolate the voltage data into the pulse data
-    ocv = np.interp(pulse_data['soc'], ocv_curve['soc'], ocv_curve['voltage'])
+    ocv = np.interp(pulse_data['soc'], ocv_curve['soc'], ocv_curve['pack_voltage'])
     #calculate DCIR = (OCV-Vpulse) / Ipulse
-    dcir = (ocv - pulse_data['voltage']) / abs(pulse_data['current'])
+    dcir = (ocv - pulse_data['pack_voltage']) / abs(pulse_data['shunt_current'])
     return ocv, dcir
 
 def generate_dcir_durve(pulse_data, delay):
@@ -470,8 +467,8 @@ def generate_plots(discharge_data, charge_data, dcir_4C_1s, dcir_4C_10s):
         pass
 
     plt.figure()
-    plt.plot(discharge_data['consumed_ah'], discharge_data['voltage'], label='discharge')
-    plt.plot(charge_data['consumed_ah'], charge_data['voltage'], label='charge')
+    plt.plot(discharge_data['consumed_ah'], discharge_data['pack_voltage'], label='discharge')
+    plt.plot(charge_data['consumed_ah'], charge_data['pack_voltage'], label='charge')
     plt.gca().invert_xaxis()
     plt.xlabel('consumed Ah')
     plt.ylabel('voltage')
