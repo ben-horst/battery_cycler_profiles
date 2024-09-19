@@ -33,6 +33,15 @@ class AttachFile:
 ATTACHED_FILE_KEY = "attached_file"
 ATTACHED_FILE_DIRECTORY = "/tmp/zipline-htf/attached_files"
 
+plot_file_name = 'timeseries.png'
+plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
+
+validation_data_file_name = 'validation_data.pkl'
+validation_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, validation_data_file_name)
+
+battery_telemetry_data_file_name = 'battery_telemetry_data.pkl'
+battery_telemetry_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, battery_telemetry_data_file_name)
+
 validator_result_dict: Dict[str, Dict] = {}
 attached_files: List[AttachFile] = []
 
@@ -264,12 +273,14 @@ def validate_csv(
 
     # Export data to a file
     import pickle
-    with open("validation_data.pkl", "wb") as f:    #this is where to put any computed dataframes or variables that need to be saved
+    # with open("validation_data.pkl", "wb") as f:    #this is where to put any computed dataframes or variables that need to be saved
+    with open(validation_data_file_path, "wb") as f:  
         pickle.dump({
             "current_sampling_data": current_sampling_data
         }, f)
 
-    with open("battery_telemetry_data.pkl", "wb") as f:     #this exports all the releveant battery telemetry data
+    # with open("battery_telemetry_data.pkl", "wb") as f:     #this exports all the releveant battery telemetry data
+    with open(battery_telemetry_data_file_path, "wb") as f: 
         pickle.dump({
             "all_battery_data": all_battery_data
         }, f)
@@ -311,16 +322,13 @@ def validate_csv(
     validator_result_dict["max_current_error"] = asdict(ValidateItem(value=overall_max_current_error, type="float", criteria=f"-{CURRENT_ERROR_CRITERIA}<x<{CURRENT_ERROR_CRITERIA}", units="A"))
     logger.debug(f"max_current_error: {overall_max_current_error}")
     
-    plot_file_name = 'timeseries.png'
-    plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
+
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=plot_file_path))
     
-    validation_data_file_name = 'validation_data.pkl'
-    validation_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, validation_data_file_name)
+
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=validation_data_file_path))
 
-    battery_telemetry_data_file_name = 'battery_telemetry_data.pkl'
-    battery_telemetry_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, battery_telemetry_data_file_name)
+
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=battery_telemetry_data_file_path))
 
     # (Do not modify) Save the validation result to a JSON file
@@ -375,28 +383,28 @@ def generate_plots(data):
 
     plt.figure()
     ax1 = plt.subplot(311)
-    ax1.plot(data['time_offset'], data['pack_voltage'], label='Pack Voltage')
+    ax1.plot(data['time_offset'].to_numpy(), data['pack_voltage'].to_numpy(), label='Pack Voltage')
     ax1.set_ylabel('Voltage (V)')
     ax1.set_title('Pack Voltage')
     ax2 = plt.subplot(312, sharex=ax1)
-    ax2.plot(data['time_offset'], data['pack_current'], label='Pack Current')
+    ax2.plot(data['time_offset'].to_numpy(), data['pack_current'].to_numpy(), label='Pack Current')
     ax2.set_ylabel('Current (A)')
     ax2.set_title('Pack Current')
     ax3 = plt.subplot(313, sharex=ax1)
-    ax3.plot(data['time_offset'], data['pack_temperature[0]'], label='Cell Temperature 0')
-    ax3.plot(data['time_offset'], data['pack_temperature[1]'], label='Cell Temperature 1')
-    ax3.plot(data['time_offset'], data['pack_temperature[2]'], label='Cell Temperature 2')
-    ax3.plot(data['time_offset'], data['pack_temperature[3]'], label='Cell Temperature 3')
-    ax3.plot(data['time_offset'], data['pack_temperature[4]'], label='Cell Temperature 4')
-    ax3.plot(data['time_offset'], data['pack_temperature[5]'], label='Cell Temperature 5')
-    ax3.plot(data['time_offset'], data['shunt_temperature'], label='Shunt Temperature')
+    ax3.plot(data['time_offset'].to_numpy(), data['pack_temperature[0]'].to_numpy(), label='Cell Temperature 0')
+    ax3.plot(data['time_offset'].to_numpy(), data['pack_temperature[1]'].to_numpy(), label='Cell Temperature 1')
+    ax3.plot(data['time_offset'].to_numpy(), data['pack_temperature[2]'].to_numpy(), label='Cell Temperature 2')
+    ax3.plot(data['time_offset'].to_numpy(), data['pack_temperature[3]'].to_numpy(), label='Cell Temperature 3')
+    ax3.plot(data['time_offset'].to_numpy(), data['pack_temperature[4]'].to_numpy(), label='Cell Temperature 4')
+    ax3.plot(data['time_offset'].to_numpy(), data['pack_temperature[5]'].to_numpy(), label='Cell Temperature 5')
+    ax3.plot(data['time_offset'].to_numpy(), data['shunt_temperature'].to_numpy(), label='Shunt Temperature')
     ax3.legend()
     ax3.set_ylabel('Temperature (C)')
     ax3.set_title('Cell Temperatures')
     plt.xlabel('Time (s)')
     plt.subplots_adjust(wspace=0, hspace=0.3)
     plt.gcf().set_size_inches(10, 10)
-    plt.savefig('timeseries.png')
+    plt.savefig(plot_file_path)
 
 
 # ------------------------------------------------

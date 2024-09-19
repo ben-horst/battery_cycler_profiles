@@ -33,6 +33,21 @@ class AttachFile:
 ATTACHED_FILE_KEY = "attached_file"
 ATTACHED_FILE_DIRECTORY = "/tmp/zipline-htf/attached_files"
 
+plot_file_name = 'timeseries.png'
+plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
+
+ocv_file_name = 'ocv_curve.png'
+ocv_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, ocv_file_name)
+
+dcir_file_name = 'dcir_curve.png'
+dcir_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, dcir_file_name)
+
+validation_data_file_name = 'validation_data.pkl'
+validation_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, validation_data_file_name)
+
+battery_telemetry_data_file_name = 'battery_telemetry_data.pkl'
+battery_telemetry_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, battery_telemetry_data_file_name)
+
 validator_result_dict: Dict[str, Dict] = {}
 attached_files: List[AttachFile] = []
 
@@ -299,28 +314,41 @@ def validate_csv(
     
 
     #calculate total discharge and charge capacities
-    total_discharge_capacity = abs(discharge_data['amp-s'].max() - discharge_data['amp-s'].min()) / 3600   #convert from A*s to Ah
-    total_charge_capacity = abs(charge_data['amp-s'].max() - charge_data['amp-s'].min()) / 3600   #convert from A*s to Ah
-    measured_capacity = (total_discharge_capacity + total_charge_capacity) / 2      #average of the two capacities
+    try:
+        total_discharge_capacity = abs(discharge_data['amp-s'].max() - discharge_data['amp-s'].min()) / 3600   #convert from A*s to Ah
+        total_charge_capacity = abs(charge_data['amp-s'].max() - charge_data['amp-s'].min()) / 3600   #convert from A*s to Ah
+        measured_capacity = (total_discharge_capacity + total_charge_capacity) / 2      #average of the two capacities
 
-    #calculate SOC columns for each dataset, both with the measured capacity and the ideal capacity
-    pulse_data['soc'], pulse_data['soc_ideal'], pulse_data['consumed_ah'] = calculate_soc(pulse_data, amp_s_before_pulses, measured_capacity, IDEAL_CAPACITY)
-    discharge_data['soc'], discharge_data['soc_ideal'], discharge_data['consumed_ah'] = calculate_soc(discharge_data, amp_s_before_discharge, measured_capacity, IDEAL_CAPACITY)
-    charge_data['soc'], charge_data['soc_ideal'], charge_data['consumed_ah'] = calculate_soc(charge_data, amp_s_before_discharge, measured_capacity, IDEAL_CAPACITY)
+        #calculate SOC columns for each dataset, both with the measured capacity and the ideal capacity
+        pulse_data['soc'], pulse_data['soc_ideal'], pulse_data['consumed_ah'] = calculate_soc(pulse_data, amp_s_before_pulses, measured_capacity, IDEAL_CAPACITY)
+        discharge_data['soc'], discharge_data['soc_ideal'], discharge_data['consumed_ah'] = calculate_soc(discharge_data, amp_s_before_discharge, measured_capacity, IDEAL_CAPACITY)
+        charge_data['soc'], charge_data['soc_ideal'], charge_data['consumed_ah'] = calculate_soc(charge_data, amp_s_before_discharge, measured_capacity, IDEAL_CAPACITY)
+    except Exception as e:
+        logger.error(f"Failed to calculate capacities and SOC: {e}")
+        total_discharge_capacity = 0
+        total_charge_capacity = 0
+        measured_capacity = 0
 
-    #separate pulse data into the 1C and 4C portions
-    small_pulse_data = pulse_data[(abs(pulse_data['shunt_current']) > (SMALL_PULSE_CURRENT - 1)) & (abs(pulse_data['shunt_current']) < (SMALL_PULSE_CURRENT + 1))]
-    large_pulse_data = pulse_data[(abs(pulse_data['shunt_current']) > (LARGE_PULSE_CURRENT - 2)) & (abs(pulse_data['shunt_current']) < (LARGE_PULSE_CURRENT + 2))]
-    #use the c/5 discharge data to interpolate an approximated OCV curve then calculate DCIR at each step
-    small_pulse_data['ocv'], small_pulse_data['dcir'] = interpolate_ocv_and_calc_dcir(small_pulse_data, discharge_data)
-    large_pulse_data['ocv'], large_pulse_data['dcir'] = interpolate_ocv_and_calc_dcir(large_pulse_data, discharge_data)
-    #calculate DCIR curves at 1 s and 10 s after pulse starts
-    dcir_4C_1s, _, _ = generate_dcir_durve(large_pulse_data, 1)
-    dcir_4C_10s, _, _ = generate_dcir_durve(large_pulse_data, 10)
+    try:
+        #separate pulse data into the 1C and 4C portions
+        small_pulse_data = pulse_data[(abs(pulse_data['shunt_current']) > (SMALL_PULSE_CURRENT - 1)) & (abs(pulse_data['shunt_current']) < (SMALL_PULSE_CURRENT + 1))]
+        large_pulse_data = pulse_data[(abs(pulse_data['shunt_current']) > (LARGE_PULSE_CURRENT - 2)) & (abs(pulse_data['shunt_current']) < (LARGE_PULSE_CURRENT + 2))]
+        #use the c/5 discharge data to interpolate an approximated OCV curve then calculate DCIR at each step
+        small_pulse_data['ocv'], small_pulse_data['dcir'] = interpolate_ocv_and_calc_dcir(small_pulse_data, discharge_data)
+        large_pulse_data['ocv'], large_pulse_data['dcir'] = interpolate_ocv_and_calc_dcir(large_pulse_data, discharge_data)
+        #calculate DCIR curves at 1 s and 10 s after pulse starts
+        dcir_4C_1s, _, _ = generate_dcir_durve(large_pulse_data, 1)
+        dcir_4C_10s, _, _ = generate_dcir_durve(large_pulse_data, 10)
+    except Exception as e:
+        logger.error(f"Failed to calculate DCIR: {e}")
+        small_pulse_data = pd.DataFrame()
+        large_pulse_data = pd.DataFrame()
+        dcir_4C_1s = pd.DataFrame()
+        dcir_4C_10s = pd.DataFrame()
 
     # Export data to a file
     import pickle
-    with open("validation_data.pkl", "wb") as f:
+    with open(validation_data_file_path, "wb") as f:
         pickle.dump({
             "current_sampling_data": current_sampling_data,
             "small_pulse_data": small_pulse_data,
@@ -330,7 +358,7 @@ def validate_csv(
             "dcir_4C_1s": dcir_4C_1s,
             "dcir_4C_10s": dcir_4C_10s
         }, f)
-    with open("battery_telemetry_data.pkl", "wb") as f:
+    with open(battery_telemetry_data_file_path, "wb") as f:
         pickle.dump({
             "all_battery_data": all_battery_data
         }, f)
@@ -378,24 +406,10 @@ def validate_csv(
     validator_result_dict["total_charge_capacity"] = asdict(ValidateItem(value=total_charge_capacity, type="float", criteria="x>0", units="Ah"))
     logger.debug(f"total_charge_capacity: {total_charge_capacity}")
 
-    plot_file_name = 'timeseries.png'
-    plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=plot_file_path))
-    
-    ocv_file_name = 'ocv_curve.png'
-    ocv_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, ocv_file_name)
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=ocv_file_path))
-    
-    dcir_file_name = 'dcir_curve.png'
-    dcir_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, dcir_file_name)
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=dcir_file_path))
-
-    validation_data_file_name = 'validation_data.pkl'
-    validation_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, validation_data_file_name)
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=validation_data_file_path))
-
-    battery_telemetry_data_file_name = 'battery_telemetry_data.pkl'
-    battery_telemetry_data_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, battery_telemetry_data_file_name)
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=battery_telemetry_data_file_path))
 
     # (Do not modify) Save the validation result to a JSON file
@@ -473,48 +487,48 @@ def generate_plots(all_data, discharge_data, charge_data, dcir_4C_1s, dcir_4C_10
 
     plt.figure()
     ax1 = plt.subplot(311)
-    ax1.plot(all_data['time_offset'], all_data['pack_voltage'], label='Pack Voltage')
+    ax1.plot(all_data['time_offset'].to_numpy(), all_data['pack_voltage'].to_numpy(), label='Pack Voltage')
     ax1.set_ylabel('Voltage (V)')
     ax1.set_title('Pack Voltage')
     ax2 = plt.subplot(312, sharex=ax1)
-    ax2.plot(all_data['time_offset'], all_data['pack_current'], label='Pack Current')
+    ax2.plot(all_data['time_offset'].to_numpy(), all_data['pack_current'].to_numpy(), label='Pack Current')
     ax2.set_ylabel('Current (A)')
     ax2.set_title('Pack Current')
     ax3 = plt.subplot(313, sharex=ax1)
-    ax3.plot(all_data['time_offset'], all_data['pack_temperature[0]'], label='Cell Temperature 0')
-    ax3.plot(all_data['time_offset'], all_data['pack_temperature[1]'], label='Cell Temperature 1')
-    ax3.plot(all_data['time_offset'], all_data['pack_temperature[2]'], label='Cell Temperature 2')
-    ax3.plot(all_data['time_offset'], all_data['pack_temperature[3]'], label='Cell Temperature 3')
-    ax3.plot(all_data['time_offset'], all_data['pack_temperature[4]'], label='Cell Temperature 4')
-    ax3.plot(all_data['time_offset'], all_data['pack_temperature[5]'], label='Cell Temperature 5')
-    ax3.plot(all_data['time_offset'], all_data['shunt_temperature'], label='Shunt Temperature')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[0]'].to_numpy(), label='Cell Temperature 0')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[1]'].to_numpy(), label='Cell Temperature 1')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[2]'].to_numpy(), label='Cell Temperature 2')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[3]'].to_numpy(), label='Cell Temperature 3')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[4]'].to_numpy(), label='Cell Temperature 4')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[5]'].to_numpy(), label='Cell Temperature 5')
+    ax3.plot(all_data['time_offset'].to_numpy(), all_data['shunt_temperature'].to_numpy(), label='Shunt Temperature')
     ax3.legend()
     ax3.set_ylabel('Temperature (C)')
     ax3.set_title('Cell Temperatures')
     plt.xlabel('Time (s)')
     plt.subplots_adjust(wspace=0, hspace=0.3)
     plt.gcf().set_size_inches(10, 10)
-    plt.savefig('timeseries.png')
+    plt.savefig(plot_file_path)
 
     plt.figure()
-    plt.plot(discharge_data['consumed_ah'], discharge_data['pack_voltage'], label='discharge')
-    plt.plot(charge_data['consumed_ah'], charge_data['pack_voltage'], label='charge')
+    plt.plot(discharge_data['consumed_ah'].to_numpy(), discharge_data['pack_voltage'].to_numpy(), label='discharge')
+    plt.plot(charge_data['consumed_ah'].to_numpy(), charge_data['pack_voltage'].to_numpy(), label='charge')
     plt.gca().invert_xaxis()
     plt.xlabel('consumed Ah')
     plt.ylabel('voltage')
     plt.legend()
     plt.title('C/20 Charge/Discharge')
-    plt.savefig('ocv_curve.png')
+    plt.savefig(ocv_file_path)
 
     plt.figure()
-    plt.plot(dcir_4C_1s['consumed_ah'], dcir_4C_1s['dcir'], label='4C/1s')
-    plt.plot(dcir_4C_10s['consumed_ah'], dcir_4C_10s['dcir'], label='4C/10s')
+    plt.plot(dcir_4C_1s['consumed_ah'].to_numpy(), dcir_4C_1s['dcir'].to_numpy(), label='4C/1s')
+    plt.plot(dcir_4C_10s['consumed_ah'].to_numpy(), dcir_4C_10s['dcir'].to_numpy(), label='4C/10s')
     plt.gca().invert_xaxis()
     plt.legend()
     plt.xlabel('consumed Ah')
     plt.ylabel('resistance')
     plt.title('DCIR')
-    plt.savefig('dcir_curve.png')
+    plt.savefig(dcir_file_path)
 
 
 # ------------------------------------------------
