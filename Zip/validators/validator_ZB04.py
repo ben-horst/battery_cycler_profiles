@@ -250,6 +250,7 @@ def validate_csv(
     #compile overall validation test results
     total_seconds = int(end_time - start_time)
     elapsed_time = str(datetime.timedelta(seconds=total_seconds))
+    all_battery_data['time_offset'] = all_battery_data['approx_realtime_sec'] - start_time
 
     num_chunks_passed = sum(chunks_passed)
     logger.debug(f"Number of chunks passed: {num_chunks_passed}/{chunk_count}")
@@ -335,7 +336,7 @@ def validate_csv(
         }, f)
     
     try:
-        generate_plots(discharge_data, charge_data, dcir_4C_1s, dcir_4C_10s)
+        generate_plots(all_battery_data, discharge_data, charge_data, dcir_4C_1s, dcir_4C_10s)
     except Exception as e:
         logger.error(f"Failed to generate plots: {e}")
 
@@ -376,6 +377,10 @@ def validate_csv(
 
     validator_result_dict["total_charge_capacity"] = asdict(ValidateItem(value=total_charge_capacity, type="float", criteria="x>0", units="Ah"))
     logger.debug(f"total_charge_capacity: {total_charge_capacity}")
+
+    plot_file_name = 'timeseries.png'
+    plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
+    attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=plot_file_path))
     
     ocv_file_name = 'ocv_curve.png'
     ocv_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, ocv_file_name)
@@ -456,7 +461,7 @@ def generate_dcir_durve(pulse_data, delay):
         dcir_curve = pd.concat([dcir_curve, data_after_delay.iloc[0:1]])
     return dcir_curve, pulse_starts, pulse_ends
 
-def generate_plots(discharge_data, charge_data, dcir_4C_1s, dcir_4C_10s):
+def generate_plots(all_data, discharge_data, charge_data, dcir_4C_1s, dcir_4C_10s):
     #Suppress logs from specific modules that are loud and not useful.
     try:
         suppress_logger = logging.getLogger('matplotlib')
@@ -465,6 +470,31 @@ def generate_plots(discharge_data, charge_data, dcir_4C_1s, dcir_4C_10s):
         suppress_logger.setLevel(logging.CRITICAL)
     except Exception as e:
         pass
+
+    plt.figure()
+    ax1 = plt.subplot(311)
+    ax1.plot(all_data['time_offset'], all_data['pack_voltage'], label='Pack Voltage')
+    ax1.set_ylabel('Voltage (V)')
+    ax1.set_title('Pack Voltage')
+    ax2 = plt.subplot(312, sharex=ax1)
+    ax2.plot(all_data['time_offset'], all_data['pack_current'], label='Pack Current')
+    ax2.set_ylabel('Current (A)')
+    ax2.set_title('Pack Current')
+    ax3 = plt.subplot(313, sharex=ax1)
+    ax3.plot(all_data['time_offset'], all_data['pack_temperature[0]'], label='Cell Temperature 0')
+    ax3.plot(all_data['time_offset'], all_data['pack_temperature[1]'], label='Cell Temperature 1')
+    ax3.plot(all_data['time_offset'], all_data['pack_temperature[2]'], label='Cell Temperature 2')
+    ax3.plot(all_data['time_offset'], all_data['pack_temperature[3]'], label='Cell Temperature 3')
+    ax3.plot(all_data['time_offset'], all_data['pack_temperature[4]'], label='Cell Temperature 4')
+    ax3.plot(all_data['time_offset'], all_data['pack_temperature[5]'], label='Cell Temperature 5')
+    ax3.plot(all_data['time_offset'], all_data['shunt_temperature'], label='Shunt Temperature')
+    ax3.legend()
+    ax3.set_ylabel('Temperature (C)')
+    ax3.set_title('Cell Temperatures')
+    plt.xlabel('Time (s)')
+    plt.subplots_adjust(wspace=0, hspace=0.3)
+    plt.gcf().set_size_inches(10, 10)
+    plt.savefig('timeseries.png')
 
     plt.figure()
     plt.plot(discharge_data['consumed_ah'], discharge_data['pack_voltage'], label='discharge')

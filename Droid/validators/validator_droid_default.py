@@ -36,10 +36,10 @@ ATTACHED_FILE_DIRECTORY = "/tmp/zipline-htf/attached_files"
 validator_result_dict: Dict[str, Dict] = {}
 attached_files: List[AttachFile] = []
 
-IDEAL_CAPACITY = 4.5*6    #battery capacity in Ah
+IDEAL_CAPACITY = 2.8    #battery capacity in Ah
 
 #test run with:
-#sudo python validators/validator_zip_default.py --csv_file sample_logs/ZB08_sample_log.csv --validator_result_json sample_logs/test_json.json
+#sudo python validators/validator_droid_default.py --csv_file sample_logs/profile_1_log.csv --validator_result_json sample_logs/test_json.json
 
 # ------------------------------------------------
 # Validation function (modify this function)
@@ -69,9 +69,9 @@ def validate_csv(
     
     #pack min & max voltages - must be 35 V - 59 V
     chunks_max_voltage = []     #list of max voltage at each chunk
-    MAX_VOLTAGE_CRITERIA = 59
+    MAX_VOLTAGE_CRITERIA = 21.2
     chunks_min_voltage = []     #list of min voltge at each chunk
-    MIN_VOLTAGE_CRITERIA = 35
+    MIN_VOLTAGE_CRITERIA = 12.4
 
     #brick delta - difference between bricks can not exceed 50 mV
     chunks_max_brick_delta = []     #list of max brick delta at each chunk
@@ -112,14 +112,15 @@ def validate_csv(
 
         if not data.empty:
             
-            #find all rows where the identifier is /battery_monitor.zip_battery_telemetry and are relevant columns
-            relevant_columns = ['step_name','approx_realtime_sec','pack_voltage','pack_current','shunt_temperature',
-                                'pack_temperature[0]','pack_temperature[1]','pack_temperature[2]','pack_temperature[3]',
-                                'pack_temperature[4]','pack_temperature[5]','brick_voltage[0]','brick_voltage[1]',
-                                'brick_voltage[2]','brick_voltage[3]','brick_voltage[4]','brick_voltage[5]','brick_voltage[6]',
-                                'brick_voltage[7]','brick_voltage[8]','brick_voltage[9]','brick_voltage[10]','brick_voltage[11]',
-                                'brick_voltage[12]','brick_voltage[13]']
-            battery_monitor_data = data[(data['identifier'] == '/battery_monitor.zip_battery_telemetry')][relevant_columns]
+            #find all rows where the identifier is /battery_monitor.droid_battery_telemetry and are relevant columns
+            relevant_columns = ['step_name','approx_realtime_sec','pack_voltage','pack_current','brick_voltage[0]','brick_voltage[1]',
+                                'brick_voltage[2]','brick_voltage[3]','brick_voltage[4]','brick_heater_temperature[thermistor_brick1]',
+                                'brick_heater_temperature[thermistor_brick3_afe]','brick_heater_temperature[thermistor_brick5]','sys_current',
+                                'is_fault_line_active','hw_undervoltage_vbatt','hw_overvoltage_vbatt','hw_ntc_undertemperature',
+                                'hw_ntc_severe_overtemperature','hw_ntc_overtemperature','hw_persistent_short_circuit_discharge',
+                                'hw_short_circuit_discharge','hw_persistent_overcurrent_discharge','hw_persistent_overcurrent_charge',
+                                'hw_overcurrent_discharge','hw_overcurrent_charge','hw_vbatt_sum_check_fail','hw_faultn_ext']
+            battery_monitor_data = data[(data['identifier'] == '/battery_monitor.droid_battery_telemetry')][relevant_columns]
             all_battery_data = pd.concat([all_battery_data, battery_monitor_data])
 
             #find max and min pack voltage at anytime in this chunk of data
@@ -164,9 +165,9 @@ def validate_csv(
             for brick in missing_brick_voltages:
                 overall_missing_brick_voltages.add(brick)  
 
-            #check that every entry in columns starting with temperature is a numeric value in a reasonable range
+            #check that every entry in columns starting with brick_heater_temperature is a numeric value in a reasonable range
             temperatures_okay = []
-            for column in battery_monitor_data.filter(like='pack_temperature['):
+            for column in battery_monitor_data.filter(like='brick_heater_temperature'):
                 if pd.to_numeric(battery_monitor_data[column], errors='coerce').between(MIN_CELL_TEMP_CRITERIA, MAX_CELL_TEMP_CRITERIA).all():
                     temperatures_okay.append(True)
                 else:    
@@ -186,6 +187,8 @@ def validate_csv(
                 current_error_okay = current_sampling_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
             else:
                 current_error_okay = True
+            if not current_error_okay:
+                print(f'current error exceeded: {current_sampling_data["current_error"].abs().max()}')
 
             #evaluate chunk test pass
             chunk_passed = all([max_voltage_okay,
@@ -311,7 +314,7 @@ def validate_csv(
     validator_result_dict["max_current_error"] = asdict(ValidateItem(value=overall_max_current_error, type="float", criteria=f"-{CURRENT_ERROR_CRITERIA}<x<{CURRENT_ERROR_CRITERIA}", units="A"))
     logger.debug(f"max_current_error: {overall_max_current_error}")
     
-    plot_file_name = 'timeseries.png'
+    plot_file_name = 'plot1.png'
     plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=plot_file_path))
     
@@ -338,9 +341,9 @@ def perform_average_and_update_data(data, stepname, sampling_interval):
         t = first_time
         while t <= last_time:
             shunt_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['current'].mean()
-            pack_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_current'].mean()
+            pack_current = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.droid_battery_telemetry')]['pack_current'].mean()
             shunt_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['voltage'].mean()
-            pack_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.zip_battery_telemetry')]['pack_voltage'].mean()
+            pack_voltage = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/battery_monitor.droid_battery_telemetry')]['pack_voltage'].mean()
             amp_s = all_rows[(all_rows['approx_realtime_sec'] >= t) & (all_rows['approx_realtime_sec'] < t+sampling_interval) & (all_rows['identifier'] == '/htf.shunt.status')]['current_counter'].mean()
             new_row = {'time': [t], 'amp-s': [amp_s], 'shunt_current': [shunt_current], 'pack_current': [pack_current], 'pack_voltage': [pack_voltage], 'shunt_voltage': [shunt_voltage]}
             averaged_data = pd.concat([averaged_data, pd.DataFrame(new_row)])
@@ -383,20 +386,16 @@ def generate_plots(data):
     ax2.set_ylabel('Current (A)')
     ax2.set_title('Pack Current')
     ax3 = plt.subplot(313, sharex=ax1)
-    ax3.plot(data['time_offset'], data['pack_temperature[0]'], label='Cell Temperature 0')
-    ax3.plot(data['time_offset'], data['pack_temperature[1]'], label='Cell Temperature 1')
-    ax3.plot(data['time_offset'], data['pack_temperature[2]'], label='Cell Temperature 2')
-    ax3.plot(data['time_offset'], data['pack_temperature[3]'], label='Cell Temperature 3')
-    ax3.plot(data['time_offset'], data['pack_temperature[4]'], label='Cell Temperature 4')
-    ax3.plot(data['time_offset'], data['pack_temperature[5]'], label='Cell Temperature 5')
-    ax3.plot(data['time_offset'], data['shunt_temperature'], label='Shunt Temperature')
+    ax3.plot(data['time_offset'], data['brick_heater_temperature[thermistor_brick1]'], label='Cell 1')
+    ax3.plot(data['time_offset'], data['brick_heater_temperature[thermistor_brick3_afe]'], label='Cell 3')
+    ax3.plot(data['time_offset'], data['brick_heater_temperature[thermistor_brick5]'], label='Cell 5')
     ax3.legend()
     ax3.set_ylabel('Temperature (C)')
     ax3.set_title('Cell Temperatures')
     plt.xlabel('Time (s)')
-    plt.subplots_adjust(wspace=0, hspace=0.3)
+    plt.tight_layout()
     plt.gcf().set_size_inches(10, 10)
-    plt.savefig('timeseries.png')
+    plt.savefig('plot1.png')
 
 
 # ------------------------------------------------
