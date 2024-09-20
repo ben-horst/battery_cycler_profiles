@@ -1,4 +1,3 @@
-import csv
 import json
 import logging
 import os
@@ -12,6 +11,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import datetime
+import pickle
 
 pd.options.mode.copy_on_write = True
 
@@ -31,7 +31,10 @@ class AttachFile:
     file_path: str
 
 ATTACHED_FILE_KEY = "attached_file"
-ATTACHED_FILE_DIRECTORY = "/tmp/zipline-htf/attached_files"
+if sys.platform.startswith("linux"):
+    ATTACHED_FILE_DIRECTORY = "/tmp/zipline-htf/attached_files"
+else:
+    ATTACHED_FILE_DIRECTORY = ""
 
 plot_file_name = 'timeseries.png'
 plot_file_path = os.path.join(ATTACHED_FILE_DIRECTORY, plot_file_name)
@@ -207,14 +210,15 @@ def validate_csv(
                 overall_missing_temperatures.add(temp)
 
             #compare pack current measurements to current shunt measurements
-            current_sampling_data = perform_average_and_update_data(data, '', CURRENT_SAMPLING_INTERVAL)
-            if not current_sampling_data.empty:
-                current_sampling_data['pack_current_smoothed'] = current_sampling_data['pack_current'].rolling(window=10).mean()
-                current_sampling_data['shunt_current_smoothed'] = current_sampling_data['shunt_current'].rolling(window=10).mean()
-                current_sampling_data['current_error'] = current_sampling_data['shunt_current_smoothed'] - current_sampling_data['pack_current_smoothed']
-                current_error_okay = current_sampling_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+            new_data = perform_average_and_update_data(data, '', CURRENT_SAMPLING_INTERVAL)
+            if not new_data.empty:
+                new_data['pack_current_smoothed'] = new_data['pack_current'].rolling(window=10).mean()
+                new_data['shunt_current_smoothed'] = new_data['shunt_current'].rolling(window=10).mean()
+                new_data['current_error'] = new_data['shunt_current_smoothed'] - new_data['pack_current_smoothed']
+                current_error_okay = new_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
             else:
                 current_error_okay = True
+            current_sampling_data = pd.concat([current_sampling_data, new_data])
 
 
             #find pulse train portion and calcualte DCIR at 1C & 4C for every SOC
@@ -347,7 +351,6 @@ def validate_csv(
         dcir_4C_10s = pd.DataFrame()
 
     # Export data to a file
-    import pickle
     with open(validation_data_file_path, "wb") as f:
         pickle.dump({
             "current_sampling_data": current_sampling_data,
@@ -489,28 +492,30 @@ def generate_plots(all_data, discharge_data, charge_data, dcir_4C_1s, dcir_4C_10
         pass
 
     plt.figure()
-    ax1 = plt.subplot(311)
+    ax1 = plt.subplot(411)
     ax1.plot(all_data['time_offset'].to_numpy(), all_data['pack_voltage'].to_numpy(), label='Pack Voltage')
     ax1.set_ylabel('Voltage (V)')
     ax1.set_title('Pack Voltage')
-    ax2 = plt.subplot(312, sharex=ax1)
+    ax2 = plt.subplot(412, sharex=ax1)
     ax2.plot(all_data['time_offset'].to_numpy(), all_data['pack_current'].to_numpy(), label='Pack Current')
     ax2.set_ylabel('Current (A)')
     ax2.set_title('Pack Current')
-    ax3 = plt.subplot(313, sharex=ax1)
-    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[0]'].to_numpy(), label='Cell Temperature 0')
-    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[1]'].to_numpy(), label='Cell Temperature 1')
-    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[2]'].to_numpy(), label='Cell Temperature 2')
-    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[3]'].to_numpy(), label='Cell Temperature 3')
-    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[4]'].to_numpy(), label='Cell Temperature 4')
-    ax3.plot(all_data['time_offset'].to_numpy(), all_data['pack_temperature[5]'].to_numpy(), label='Cell Temperature 5')
+    ax3 = plt.subplot(413, sharex=ax1)
+    for i in range(0, 6):
+        ax3.plot(all_data['time_offset'].to_numpy(), all_data[f'pack_temperature[{i}]'].to_numpy(), label=f'Pack Temperature {i}')
     ax3.plot(all_data['time_offset'].to_numpy(), all_data['shunt_temperature'].to_numpy(), label='Shunt Temperature')
-    ax3.legend()
     ax3.set_ylabel('Temperature (C)')
-    ax3.set_title('Cell Temperatures')
+    ax3.set_title('Temperatures')
+    ax3.legend(fontsize='small')
+    ax4 = plt.subplot(414, sharex=ax1)
+    for i in range(0, 14):
+        ax4.plot(all_data['time_offset'], all_data[f'brick_voltage[{i}]'], label=f'Brick {i+1}')
+    ax4.set_ylabel('Voltage (V)')
+    ax4.set_title('Cell Voltages')
+    ax4.legend(fontsize='x-small')
     plt.xlabel('Time (s)')
     plt.subplots_adjust(wspace=0, hspace=0.3)
-    plt.gcf().set_size_inches(10, 10)
+    plt.gcf().set_size_inches(10, 13)
     plt.savefig(plot_file_path)
 
     plt.figure()
