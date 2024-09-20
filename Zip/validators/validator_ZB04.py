@@ -373,8 +373,11 @@ def validate_csv(
     validator_result_dict["csv_row_count"] = asdict(ValidateItem(value=row_count, type="int", criteria="x>0", units="rows"))
     logger.debug(f"csv_row_count: {row_count}")
 
-    validator_result_dict["elapsed_time"] = asdict(ValidateItem(value=elapsed_time, type="str", criteria="len(x)>0", units="hh:mm:ss"))
+    validator_result_dict["elapsed_time"] = asdict(ValidateItem(value=elapsed_time, type="str", criteria=None, units="hh:mm:ss"))
     logger.debug(f"elapsed_time: {elapsed_time}")
+
+    validator_result_dict["total_seconds"] = asdict(ValidateItem(value=total_seconds, type="int", criteria="x>0", units="seconds"))
+    logger.debug(f"total_seconds: {total_seconds}")
 
     validator_result_dict["max_voltage"] = asdict(ValidateItem(value=overall_max_voltage, type="float", criteria=f"x<{MAX_VOLTAGE_CRITERIA}", units="V"))
     logger.debug(f"max_voltage: {overall_max_voltage}")
@@ -564,8 +567,8 @@ def save_validation_result(
         )
     )
      # Add the attached files to the dictionary
-    for attached_file in attached_files:
-        validator_result_dict[attached_file.key] = asdict(
+    for i, attached_file in enumerate(attached_files):
+        validator_result_dict[f"{attached_file.key}_{i}"] = asdict(
             ValidateItem(value=attached_file.file_path, type="str")
         )
     # Write the dictionary to a JSON file
