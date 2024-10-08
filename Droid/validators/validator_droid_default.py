@@ -442,8 +442,8 @@ def save_validation_result(
         )
     )
      # Add the attached files to the dictionary
-    for attached_file in attached_files:
-        validator_result_dict[attached_file.key] = asdict(
+    for i, attached_file in enumerate(attached_files):
+        validator_result_dict[f"{attached_file.key}_{i}"] = asdict(
             ValidateItem(value=attached_file.file_path, type="str")
         )
     # Write the dictionary to a JSON file
