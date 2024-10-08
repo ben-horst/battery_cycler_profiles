@@ -77,6 +77,6 @@ def plot_vsys_error():
 
 
 #plot_all_cells()
-plot_current_error()
-#plot_vsys_error()
+#plot_current_error()
+plot_vsys_error()
 

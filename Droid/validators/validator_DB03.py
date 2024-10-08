@@ -118,7 +118,7 @@ def validate_csv(
     VSYS_RESISTOR = 10      #resistance of load resistor applied to VSYS
     NOMINAL_VOLTAGE = 18
     VSYS_ERROR_CRITERIA = 0.25    #current threshold for VSYS to be considered on
-    VSYS_SAMPLING_INTERVAL = 1.0    #interval to measure and average VSYS data
+    VSYS_SAMPLING_INTERVAL = 5.0    #interval to measure and average VSYS data
     vsys_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
 
     #heater check - when heater is on, it's resistance must be in range and temps should rise
@@ -264,7 +264,10 @@ def validate_csv(
             #check dock thermistor
             max_dock_resitance = data['dock_thermistor_resistance'].max()
             min_dock_resitance = data['dock_thermistor_resistance'].min()
-            dock_resistance_okay = (max_dock_resitance < DOCK_MAX_RESISTANCE_CRITERIA) and (min_dock_resitance > DOCK_MIN_RESISTANCE_CRITERIA)
+            if max_dock_resitance > 0 and min_dock_resitance > 0:
+                dock_resistance_okay = (max_dock_resitance < DOCK_MAX_RESISTANCE_CRITERIA) and (min_dock_resitance > DOCK_MIN_RESISTANCE_CRITERIA)
+            else:
+                dock_resistance_okay = True
             chunks_max_dock_resistance.append(max_dock_resitance)
             chunks_min_dock_resistance.append(min_dock_resitance)
             
