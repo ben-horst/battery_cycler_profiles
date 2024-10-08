@@ -46,8 +46,10 @@ def plot_current_error():
         current_sampling_data = data['current_sampling_data']
         plt.plot(current_sampling_data['time'], current_sampling_data['pack_current_smoothed'], label='Pack Current')
         plt.plot(current_sampling_data['time'], current_sampling_data['shunt_current_smoothed'], label='Shunt Current')
+        plt.plot(current_sampling_data['time'], current_sampling_data['current_error'], label='Current Error')
         plt.xlabel('Time (s)')
         plt.ylabel('Current (A)')
+        plt.legend()
         plt.show()
 
 def plot_vsys_error():
@@ -75,6 +77,6 @@ def plot_vsys_error():
 
 
 #plot_all_cells()
-#plot_current_error()
-plot_vsys_error()
+plot_current_error()
+#plot_vsys_error()
 

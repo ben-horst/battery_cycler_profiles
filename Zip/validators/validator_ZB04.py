@@ -215,7 +215,7 @@ def validate_csv(
                 new_data['pack_current_smoothed'] = new_data['pack_current'].rolling(window=10).mean()
                 new_data['shunt_current_smoothed'] = new_data['shunt_current'].rolling(window=10).mean()
                 new_data['current_error'] = new_data['shunt_current_smoothed'] - new_data['pack_current_smoothed']
-                current_error_okay = new_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+                current_error_okay = new_data['current_error'].fillna(0).abs().max() < CURRENT_ERROR_CRITERIA
             else:
                 current_error_okay = True
             current_sampling_data = pd.concat([current_sampling_data, new_data])

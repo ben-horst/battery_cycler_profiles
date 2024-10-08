@@ -108,12 +108,33 @@ def validate_csv(
     CURRENT_ERROR_CRITERIA = 3.0
     current_sampling_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
 
+    #check that the MOSFETs are open at the beginning of the test
+    pretest_chunks_max_voltage = []     #list of max voltage at each chunk
+    PRETEST_ON_VOLTAGE_CRITERIA = 12
+    pretest_chunks_min_voltage = []     #list of min voltge at each chunk
+    PRETEST_OFF_VOLTAGE_CRITERIA = 1.0
+
     #VSYS check - when VSYS is on, check the Vsys current
     VSYS_RESISTOR = 10      #resistance of load resistor applied to VSYS
     NOMINAL_VOLTAGE = 18
     VSYS_ERROR_CRITERIA = 0.25    #current threshold for VSYS to be considered on
     VSYS_SAMPLING_INTERVAL = 1.0    #interval to measure and average VSYS data
     vsys_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
+
+    #heater check - when heater is on, it's resistance must be in range and temps should rise
+    chunks_min_heater_resistance = []     #list of min heater resistance at each chunk
+    HEATER_MIN_RESISTANCE_CRITERIA = 9
+    chunks_max_heater_resistance = []     #list of max heater resistance at each chunk
+    HEATER_MAX_RESISTANCE_CRITERIA = 15
+    heater_temps = []
+    HEATER_MIN_TEMP_RISE_CRITERIA = 5
+
+    #dock thermistor check
+    chunks_max_dock_resistance = []     #list of max dock resistance at each chunk
+    DOCK_MAX_RESISTANCE_CRITERIA = 18000
+    chunks_min_dock_resistance = []     #list of min dock resistance at each chunk
+    DOCK_MIN_RESISTANCE_CRITERIA = 4000
+
         
     #read csv file into pandas dataframe, chunk by chunk
     data_iterator = pd.read_csv(csv_file, chunksize=CSV_CHUNK_SIZE_ROWS)
@@ -125,6 +146,11 @@ def validate_csv(
         row_count += len(data)
         start_time = min(start_time, data['approx_realtime_sec'].min())
         end_time = max(end_time, data['approx_realtime_sec'].max())
+
+        # check the unknown rows - mosfets should be open at first, but close during this phase
+        pretest_rows = data[data['step_name'] == 'Unknown']
+        pretest_chunks_max_voltage.append(pretest_rows[pretest_rows['identifier'] == '/htf.shunt.status']['voltage'].max())
+        pretest_chunks_min_voltage.append(pretest_rows[pretest_rows['identifier'] == '/htf.shunt.status']['voltage'].min())
 
         # Remove rows where 'step_name' is 'Unknown'
         data = data[data['step_name'] != 'Unknown']
@@ -203,7 +229,7 @@ def validate_csv(
                 new_data['pack_current_smoothed'] = new_data['pack_current'].rolling(window=10).mean()
                 new_data['shunt_current_smoothed'] = new_data['shunt_current'].rolling(window=10).mean()
                 new_data['current_error'] = new_data['shunt_current_smoothed'] - new_data['pack_current_smoothed']
-                current_error_okay = new_data['current_error'].abs().max() < CURRENT_ERROR_CRITERIA
+                current_error_okay = new_data['current_error'].fillna(0).abs().max() < CURRENT_ERROR_CRITERIA
             else:
                 current_error_okay = True
             current_sampling_data = pd.concat([current_sampling_data, new_data])
@@ -219,10 +245,29 @@ def validate_csv(
                 vsys_current_error_okay = True
             vsys_data = pd.concat([vsys_data, new_data])
             
-            #TODO: add heater validation test
-
-            #TODO: add dock thermistor validaiton test
-
+            #check heater resistance values
+            heater_rows = data[data['step_name'].str.contains('HEATER_ON')]
+            if not heater_rows.empty:
+                min_heater_resistance = heater_rows[heater_rows['identifier'] == '/htf.bk_power_supply.status']['resistance'].min()
+                max_heater_resistance = heater_rows[heater_rows['identifier'] == '/htf.bk_power_supply.status']['resistance'].max()
+                heater_resistance_okay = True
+                if min_heater_resistance > 0:
+                    chunks_min_heater_resistance.append(min_heater_resistance)
+                    heater_resistance_okay = heater_resistance_okay and (min_heater_resistance > HEATER_MIN_RESISTANCE_CRITERIA)
+                if max_heater_resistance > 0:
+                    chunks_max_heater_resistance.append(max_heater_resistance)
+                    heater_resistance_okay = heater_resistance_okay and (max_heater_resistance < HEATER_MAX_RESISTANCE_CRITERIA)
+                heater_temps = heater_temps + (heater_rows['brick_heater_temperature[thermistor_brick1]'].dropna().to_list())
+            else:
+                heater_resistance_okay = True
+                
+            #check dock thermistor
+            max_dock_resitance = data['dock_thermistor_resistance'].max()
+            min_dock_resitance = data['dock_thermistor_resistance'].min()
+            dock_resistance_okay = (max_dock_resitance < DOCK_MAX_RESISTANCE_CRITERIA) and (min_dock_resitance > DOCK_MIN_RESISTANCE_CRITERIA)
+            chunks_max_dock_resistance.append(max_dock_resitance)
+            chunks_min_dock_resistance.append(min_dock_resitance)
+            
             #evaluate chunk test pass
             chunk_passed = all([max_voltage_okay,
                         min_voltage_okay,
@@ -233,6 +278,8 @@ def validate_csv(
                         all_temperatures_okay, 
                         current_error_okay,
                         vsys_current_error_okay,
+                        heater_resistance_okay,
+                        dock_resistance_okay,
                             ])
         
         else:   #if the chunk is empty, all parsing is skipped and the chunk is a pass
@@ -243,7 +290,7 @@ def validate_csv(
         chunk_count += 1
         
         if not chunk_passed:
-            fail_reason = ((not max_voltage_okay) * 'max voltage exceeded, ') + ((not min_voltage_okay) * 'min voltage exceeded, ') + ((not brick_delta_okay) * 'brick delta exceeded, ') + ((not max_brick_voltage_okay) * 'max brick voltage exceeded, ') + ((not min_brick_voltage_okay) * 'min brick voltage exceeded, ') + ((not all_brick_voltages_okay) * 'brick voltages not numeric, ') + ((not all_temperatures_okay) * 'temperatures not numeric, ') + ((not current_error_okay) * 'current error exceeded, ' + ((not vsys_current_error_okay) * 'VSYS current error, '))
+            fail_reason = ((not max_voltage_okay) * 'max voltage exceeded, ') + ((not min_voltage_okay) * 'min voltage exceeded, ') + ((not brick_delta_okay) * 'brick delta exceeded, ') + ((not max_brick_voltage_okay) * 'max brick voltage exceeded, ') + ((not min_brick_voltage_okay) * 'min brick voltage exceeded, ') + ((not all_brick_voltages_okay) * 'brick voltages not numeric, ') + ((not all_temperatures_okay) * 'temperatures not numeric, ') + ((not current_error_okay) * 'current error exceeded, ') + ((not vsys_current_error_okay) * 'VSYS current error, ') + ((not heater_resistance_okay) * 'heater resistance failed, ') + ((not dock_resistance_okay) * 'dock resistance failed, ')
             fail_reason = fail_reason[:-2]
             logger.error(f"Test failed on chunk {iteration}: {fail_reason}")
         
@@ -288,6 +335,16 @@ def validate_csv(
     overall_current_error_okay = overall_max_current_error < CURRENT_ERROR_CRITERIA
     logger.debug(f"Max current error okay: {overall_current_error_okay}")
 
+    #check MOSFET off/on during pretest
+    overall_pretest_min_voltage = min(pretest_chunks_min_voltage)
+    prestest_fets_off_okay = overall_pretest_min_voltage < PRETEST_OFF_VOLTAGE_CRITERIA
+    logger.debug(f"Pretest off voltage okay: {prestest_fets_off_okay}")
+    overall_pretest_max_voltage = max(pretest_chunks_max_voltage)
+    prestest_fets_on_okay = overall_pretest_max_voltage > PRETEST_ON_VOLTAGE_CRITERIA
+    logger.debug(f"Pretest on voltage okay: {prestest_fets_on_okay}")
+    pretest_fets_okay = prestest_fets_off_okay and prestest_fets_on_okay
+
+
     #check VSYS current
     vsys_peak_current = vsys_data['sys_current'].max()
     avg_pack_voltage_during_vsys = vsys_data['pack_voltage'].mean()
@@ -300,6 +357,23 @@ def validate_csv(
         vsys_max_error = 10   #if VSYS is not on, set the error to a high value to indicate a failure
     logger.debug(f"VSYS current okay: {overall_vsys_current_error_okay}")
 
+    #check heater resistance
+    overall_min_heater_resistance = min(chunks_min_heater_resistance)
+    overall_max_heater_resistance = max(chunks_max_heater_resistance)
+    overall_heater_resistance_okay = (overall_min_heater_resistance > HEATER_MIN_RESISTANCE_CRITERIA) and (overall_max_heater_resistance < HEATER_MAX_RESISTANCE_CRITERIA)
+    logger.debug(f"Heater resistance okay: {overall_heater_resistance_okay}")
+
+    #check heater temperature rise
+    heater_temp_rise = max(heater_temps) - min(heater_temps)
+    heater_temp_rise_okay = heater_temp_rise > HEATER_MIN_TEMP_RISE_CRITERIA
+    logger.debug(f"Heater temp rise okay: {heater_temp_rise_okay}")
+
+    #check dock thermistor
+    overall_max_dock_resistance = max(chunks_max_dock_resistance)
+    overall_min_dock_resistance = min(chunks_min_dock_resistance)
+    overall_dock_resistance_okay = (overall_max_dock_resistance < DOCK_MAX_RESISTANCE_CRITERIA) and (overall_min_dock_resistance > DOCK_MIN_RESISTANCE_CRITERIA)
+    logger.debug(f"Dock resistance okay: {overall_dock_resistance_okay}")
+
     overall_test_passed = all([overall_max_voltage_okay,
                         overall_min_voltage_okay,
                         overall_brick_delta_okay,
@@ -309,6 +383,10 @@ def validate_csv(
                         overall_all_temperatures_okay,
                         overall_current_error_okay,
                         overall_vsys_current_error_okay,
+                        pretest_fets_okay,
+                        overall_heater_resistance_okay,
+                        heater_temp_rise_okay,
+                        overall_dock_resistance_okay,
                             ])
     
 
@@ -364,8 +442,29 @@ def validate_csv(
     validator_result_dict["max_current_error"] = asdict(ValidateItem(value=overall_max_current_error, type="float", criteria=f"-{CURRENT_ERROR_CRITERIA}<x<{CURRENT_ERROR_CRITERIA}", units="A"))
     logger.debug(f"max_current_error: {overall_max_current_error}")
 
+    validator_result_dict["pretest_fets_off_voltage"] = asdict(ValidateItem(value=overall_pretest_min_voltage, type="float", criteria=f"x<{PRETEST_OFF_VOLTAGE_CRITERIA}", units="V"))
+    logger.debug(f"pretest_fets_off_voltage: {overall_pretest_min_voltage}")
+
+    validator_result_dict["pretest_fets_on_voltage"] = asdict(ValidateItem(value=overall_pretest_max_voltage, type="float", criteria=f"x>{PRETEST_ON_VOLTAGE_CRITERIA}", units="V"))
+    logger.debug(f"pretest_fets_on_voltage: {overall_pretest_max_voltage}")
+
     validator_result_dict["vsys_max_error"] = asdict(ValidateItem(value=vsys_max_error, type="float", criteria=f"x<{VSYS_ERROR_CRITERIA}", units="A"))
     logger.debug(f"vsys_max_error: {vsys_max_error}")
+
+    validator_result_dict["heater_min_resistance"] = asdict(ValidateItem(value=overall_min_heater_resistance, type="float", criteria=f"x>{HEATER_MIN_RESISTANCE_CRITERIA}", units="Ohm"))
+    logger.debug(f"heater_min_resistance: {overall_min_heater_resistance}")
+
+    validator_result_dict["heater_max_resistance"] = asdict(ValidateItem(value=overall_max_heater_resistance, type="float", criteria=f"x<{HEATER_MAX_RESISTANCE_CRITERIA}", units="Ohm"))
+    logger.debug(f"heater_max_resistance: {overall_max_heater_resistance}")
+
+    validator_result_dict["heater_temp_rise"] = asdict(ValidateItem(value=heater_temp_rise, type="float", criteria=f"x>{HEATER_MIN_TEMP_RISE_CRITERIA}", units="C"))
+    logger.debug(f"heater_temp_rise: {heater_temp_rise}")
+
+    validator_result_dict["dock_thermistor_max_resistance"] = asdict(ValidateItem(value=overall_max_dock_resistance, type="float", criteria=f"x<{DOCK_MAX_RESISTANCE_CRITERIA}", units="Ohm"))
+    logger.debug(f"dock_max_resistance: {overall_max_dock_resistance}")
+
+    validator_result_dict["dock_thermistor_min_resistance"] = asdict(ValidateItem(value=overall_min_dock_resistance, type="float", criteria=f"x>{DOCK_MIN_RESISTANCE_CRITERIA}", units="Ohm"))
+    logger.debug(f"dock_min_resistance: {overall_min_dock_resistance}")
     
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=plot_file_path))
     attached_files.append(AttachFile(key=ATTACHED_FILE_KEY, file_path=validation_data_file_path))

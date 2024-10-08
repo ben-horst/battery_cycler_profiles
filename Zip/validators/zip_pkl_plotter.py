@@ -7,6 +7,29 @@ import matplotlib.pyplot as plt
 
 pd.options.mode.copy_on_write = True
 
+def plot_pack_voltage_and_current():
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    file_path = filedialog.askopenfilename(
+        filetypes=[("Pickle files", "*.pkl")],
+        title="choose battery telemetry pkl file"
+    )
+
+    if not file_path:
+        raise ValueError("No file selected")
+
+    with open(file_path, 'rb') as file:
+        data = pickle.load(file)
+        battery_data = data['all_battery_data']
+        plt.figure()
+        plt.plot(battery_data['approx_realtime_sec'].to_numpy(), battery_data['pack_voltage'].to_numpy(), label='Pack Voltage')
+        plt.plot(battery_data['approx_realtime_sec'].to_numpy(), battery_data['pack_current'].to_numpy(), label='Pack Current')
+        plt.ylabel('Voltage (V) / Current (A)')
+        plt.title('Pack Voltage & Current')
+        plt.legend()
+        plt.show()
+
 def plot_all_cells():
     root = tk.Tk()
     root.withdraw()  # Hide the root window
@@ -51,6 +74,7 @@ def plot_current_error():
         plt.show()
 
 
-#plot_all_cells()
-plot_current_error()
+#plot_pack_voltage_and_current()
+plot_all_cells()
+#plot_current_error()
 
