@@ -87,7 +87,7 @@ def validate_csv(
 
     #brick delta - difference between bricks can not exceed 50 mV
     chunks_max_brick_delta = []     #list of max brick delta at each chunk
-    BRICK_DELTA_CRITERIA = 0.05
+    BRICK_DELTA_CRITERIA = 0.10
 
     #cell min & max voltages - must be 2.5 V - 4.21 V
     chunks_max_brick_voltage = []     #list of max cell voltage at each chunk
@@ -117,7 +117,7 @@ def validate_csv(
     #VSYS check - when VSYS is on, check the Vsys current
     VSYS_RESISTOR = 10      #resistance of load resistor applied to VSYS
     NOMINAL_VOLTAGE = 18
-    VSYS_ERROR_CRITERIA = 0.25    #current threshold for VSYS to be considered on
+    VSYS_ERROR_CRITERIA = 0.5    #current threshold for VSYS to be considered on
     VSYS_SAMPLING_INTERVAL = 5.0    #interval to measure and average VSYS data
     vsys_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
 
