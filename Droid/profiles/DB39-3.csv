@@ -1,0 +1,14 @@
+duration(s),mode(str),current(A),voltage(V),cutoff_current(A),step_name(str),heater_voltage(V),heater_current(A),VSYS_state(str)
+30.0,REST,,,,30s_rest,,,OFF
+900.0,REST,,,,HEATER_ON_for_15min,21.0,3.0,OFF
+750.0,CHARGE,6.0,19.0,2.0,6A_charge_to_19V,,,OFF
+300.0,DISCHARGE,15.0,15.0,5.0,15A_discharge_to_15V,,,OFF
+750.0,CHARGE,6.0,19.0,2.0,6A_charge_to_19V,,,OFF
+300.0,DISCHARGE,15.0,15.0,5.0,15A_discharge_to_15V,,,OFF
+750.0,CHARGE,6.0,19.0,2.0,6A_charge_to_19V,,,OFF
+300.0,DISCHARGE,15.0,15.0,5.0,15A_discharge_to_15V,,,OFF
+750.0,CHARGE,6.0,19.0,2.0,6A_charge_to_19V,,,OFF
+300.0,DISCHARGE,15.0,15.0,5.0,15A_discharge_to_15V,,,OFF
+750.0,CHARGE,6.0,19.0,2.0,6A_charge_to_19V,,,OFF
+300.0,DISCHARGE,15.0,15.0,5.0,15A_discharge_to_15V,,,OFF
+300.0,REST,,,,5min_rest,,,OFF

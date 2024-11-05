@@ -1,0 +1,3 @@
+duration(s),mode(str),current(A),voltage(V),cutoff_current(A),step_name(str),heater_voltage(V),heater_current(A),VSYS_state(str)
+30.0,REST,,,,30s_rest,,,OFF
+3600.0,DISCHARGE,3.0,17.0,0.5,3A_discharge_to_17V,,,OFF
