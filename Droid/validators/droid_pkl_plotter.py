@@ -29,6 +29,30 @@ def plot_all_cells():
         plt.ylabel('Voltage (V)')
         plt.show()
 
+def plot_cell_delta_v():
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    file_path = filedialog.askopenfilename(
+        filetypes=[("Pickle files", "*.pkl")],
+        title="choose battery telemetry pkl file"
+    )
+
+    if not file_path:
+        raise ValueError("No file selected")
+
+    with open(file_path, 'rb') as file:
+        data = pickle.load(file)
+        battery_data = data['all_battery_data']
+        highest_brick_voltage = battery_data.filter(like='brick_voltage[').max(axis=1)
+        lowest_brick_voltage = battery_data.filter(like='brick_voltage[').min(axis=1)
+        delta_v = highest_brick_voltage - lowest_brick_voltage
+        plt.plot(battery_data['approx_realtime_sec'], delta_v)
+        plt.legend()
+        plt.xlabel('Time (s)')
+        plt.ylabel('Max Delta Voltage (V)')
+        plt.show()
+
 def plot_current_error():
     root = tk.Tk()
     root.withdraw()  # Hide the root window
@@ -75,8 +99,32 @@ def plot_vsys_error():
         plt.legend()
         plt.show()
 
+def plot_delta_from_validation_data():
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
 
-plot_all_cells()
+    file_path = filedialog.askopenfilename(
+        filetypes=[("Pickle files", "*.pkl")],
+        title="choose validation data pkl file"
+    )
+
+    if not file_path:
+        raise ValueError("No file selected")
+
+    with open(file_path, 'rb') as file:
+        data = pickle.load(file)
+        brick_delta_data = data['brick_delta_data']
+        plt.plot(brick_delta_data['time'], brick_delta_data['brick_delta'], label='brick_deltas (blips removed)')
+        plt.plot(brick_delta_data['time'], brick_delta_data['brick_delta_raw'], label='brick_deltas (raw)', linestyle='None', marker='o', markersize=2)
+        plt.legend()
+        plt.xlabel('Time (s)')
+        plt.ylabel('Voltage (V)')
+        plt.show()
+
+
+#plot_all_cells()
+#plot_cell_delta_v()
 #plot_current_error()
 #plot_vsys_error()
+plot_delta_from_validation_data()
 

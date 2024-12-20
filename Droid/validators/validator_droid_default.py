@@ -86,6 +86,7 @@ def validate_csv(
     MIN_VOLTAGE_CRITERIA = 12.4
 
     #brick delta - difference between bricks can not exceed 50 mV
+    brick_delta_data = pd.DataFrame()    #dataframe of brick delta data
     chunks_max_brick_delta = []     #list of max brick delta at each chunk
     BRICK_DELTA_CRITERIA = 0.05
 
@@ -150,11 +151,17 @@ def validate_csv(
             #make column of highest and lowest cell brick voltages to find brick deltas
             highest_brick_voltage = battery_monitor_data.filter(like='brick_voltage[').max(axis=1)
             lowest_brick_voltage = battery_monitor_data.filter(like='brick_voltage[').min(axis=1)
-            brick_delta = highest_brick_voltage - lowest_brick_voltage
+            brick_delta_raw = highest_brick_voltage - lowest_brick_voltage
+            max_delta_delta = 0.1   #value of cahnge in brick delta to ignore
+            brick_delta_delta = brick_delta_raw.diff().shift(-1).abs()
+            brick_delta_delta.iloc[-1] = brick_delta_delta.iloc[-2]   #fill the last value with the second to last value
+            brick_delta = brick_delta_raw[brick_delta_delta < max_delta_delta]   #remove any brick deltas that change too much
             max_brick_delta = brick_delta.max()
             brick_delta_okay = max_brick_delta < BRICK_DELTA_CRITERIA
             #update list of drick deltas
             chunks_max_brick_delta.append(max_brick_delta)
+            brick_delta_data = pd.concat([brick_delta_data, pd.DataFrame({'time': battery_monitor_data['approx_realtime_sec'], 'brick_delta': brick_delta, 'brick_delta_raw': brick_delta_raw})])
+
 
             #check max and min cell voltages
             max_brick_voltage = highest_brick_voltage.max()
