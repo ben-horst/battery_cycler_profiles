@@ -104,8 +104,8 @@ duration(s),mode(str),current(A),voltage(V),cutoff_current(A),thermal_system_on(
 1800.0,REST,,,,ON,35.0,30min_rest_before_recharge
 5000.0,CHARGE,27,58.8,0.3,ON,35.0,1C_charge_to_100_percent
 1800.0,REST,,,,OFF,35.0,30min_rest_before_slow_discharge
-86400,DISCHARGE,1.35,36.0,0.3,OFF,35.0,C/20_discharge_to_0_percent
+10000,DISCHARGE,13.5,36.0,0.3,OFF,35.0,C/2_discharge_to_0_percent
 1800.0,REST,,,,OFF,35.0,30min_rest_before_slow_charge
-86400,CHARGE,1.35,58.8,0.3,OFF,35.0,C/20_charge_to_100_percent
+10000,CHARGE,13.5,58.8,0.3,OFF,35.0,C/2_charge_to_100_percent
 1800.0,REST,,,,OFF,35.0,30min_rest_before_final_discharge
 3600.0,DISCHARGE,27,50.0,5.0,OFF,35.0,1C_discharge_to_50V

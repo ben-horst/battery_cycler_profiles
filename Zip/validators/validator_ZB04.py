@@ -122,7 +122,7 @@ def validate_csv(
     pulse_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
 
     #slow discharge/charge calculations
-    DCHG_CHG_SAMPING_INTERVAL = 5.0  #interval to average current measurements over to calculate total charge capacity
+    DCHG_CHG_SAMPING_INTERVAL = 2.0  #interval to average current measurements over to calculate total charge capacity
     amp_s_before_discharge = 0
     amp_s_before_charge = 0
     discharge_data = pd.DataFrame(columns=['time', 'amp-s', 'shunt_current', 'pack_current', 'pack_voltage',])
@@ -229,17 +229,17 @@ def validate_csv(
             pulse_data = pd.concat([pulse_data, new_data])
         
 
-            #find c/20 discharge portion and calculate total charge capacity
+            #find c/2 discharge portion and calculate total charge capacity
             amp_s_before_discharge = find_initial_amp_s(data, '30min_rest_before_slow_discharge', 'max', amp_s_before_discharge)
             # find rows where step_name is c/5_discharge_to_0_percent' and run moving average to time sync all signals
-            new_data = perform_average_and_update_data(data, 'C/20_discharge_to_0_percent', DCHG_CHG_SAMPING_INTERVAL)
+            new_data = perform_average_and_update_data(data, 'C/2_discharge_to_0_percent', DCHG_CHG_SAMPING_INTERVAL)
             discharge_data = pd.concat([discharge_data, new_data])
 
-            #find c/20 charge portion and calculate total charge capacity
+            #find c/2 charge portion and calculate total charge capacity
             #find rows where step_name is "30min_rest_before_slow_charge" and find the starting current_counter value
             amp_s_before_charge = find_initial_amp_s(data, '30min_rest_before_slow_charge', 'min', amp_s_before_charge)
             # find rows where step_name is c/5_charge_to_100_percent' and run moving average to time sync all signals
-            new_data = perform_average_and_update_data(data, 'C/20_charge_to_100_percent', DCHG_CHG_SAMPING_INTERVAL)
+            new_data = perform_average_and_update_data(data, 'C/2_charge_to_100_percent', DCHG_CHG_SAMPING_INTERVAL)
             charge_data = pd.concat([charge_data, new_data])
             
             #evaluate chunk test pass
@@ -525,7 +525,7 @@ def generate_plots(all_data, discharge_data, charge_data, dcir_4C_1s, dcir_4C_10
     plt.xlabel('consumed Ah')
     plt.ylabel('voltage')
     plt.legend()
-    plt.title('C/20 Charge/Discharge')
+    plt.title('C/2 Charge/Discharge')
     plt.savefig(ocv_file_path)
 
     plt.figure()
