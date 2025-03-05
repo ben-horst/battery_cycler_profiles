@@ -74,7 +74,7 @@ def plot_current_error():
         plt.show()
 
 
-#plot_pack_voltage_and_current()
-plot_all_cells()
+plot_pack_voltage_and_current()
+#plot_all_cells()
 #plot_current_error()
 
