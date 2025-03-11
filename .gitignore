@@ -1,3 +1,5 @@
 # Ignore log files
 *log.csv
 *.pkl
+*.png
+*.json

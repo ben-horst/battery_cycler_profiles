@@ -194,7 +194,7 @@ def validate_csv(
             if not new_data.empty:
                 new_data['pack_current_smoothed'] = new_data['pack_current'].rolling(window=10).mean()
                 new_data['shunt_current_smoothed'] = new_data['shunt_current'].rolling(window=10).mean()
-                new_data['current_error'] = new_data['shunt_current_smoothed'] - new_data['pack_current_smoothed']
+                new_data['current_error'] = new_data['shunt_current_smoothed'] + new_data['pack_current_smoothed']  #sign changed since pack charge sign convention is backwards now
                 current_error_okay = new_data['current_error'].fillna(0).abs().max() < CURRENT_ERROR_CRITERIA
             else:
                 current_error_okay = True
