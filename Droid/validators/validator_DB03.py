@@ -158,139 +158,141 @@ def validate_csv(
 
         if not data.empty:
             
-            #find all rows where the identifier is /battery_monitor.droid_battery_telemetry and are relevant columns
-            relevant_columns = ['step_name','approx_realtime_sec','pack_voltage','pack_current','brick_voltage[0]','brick_voltage[1]',
-                                'brick_voltage[2]','brick_voltage[3]','brick_voltage[4]','brick_heater_temperature[thermistor_brick1]',
-                                'brick_heater_temperature[thermistor_brick3_afe]','brick_heater_temperature[thermistor_brick5]','sys_current',
-                                'is_fault_line_active','hw_undervoltage_vbatt','hw_overvoltage_vbatt','hw_ntc_undertemperature',
-                                'hw_ntc_severe_overtemperature','hw_ntc_overtemperature','hw_persistent_short_circuit_discharge',
-                                'hw_short_circuit_discharge','hw_persistent_overcurrent_discharge','hw_persistent_overcurrent_charge',
-                                'hw_overcurrent_discharge','hw_overcurrent_charge','hw_vbatt_sum_check_fail','hw_faultn_ext']
-            battery_monitor_data = data[(data['identifier'] == '/battery_monitor.droid_battery_telemetry')][relevant_columns]
-            all_battery_data = pd.concat([all_battery_data, battery_monitor_data])
+            try:
+                #find all rows where the identifier is /battery_monitor.droid_battery_telemetry and are relevant columns
+                relevant_columns = ['step_name','approx_realtime_sec','pack_voltage','pack_current','brick_voltage[0]','brick_voltage[1]',
+                                    'brick_voltage[2]','brick_voltage[3]','brick_voltage[4]','brick_heater_temperature[thermistor_brick1]',
+                                    'brick_heater_temperature[thermistor_brick3_afe]','brick_heater_temperature[thermistor_brick5]','sys_current',
+                                    'is_fault_line_active','hw_undervoltage_vbatt','hw_overvoltage_vbatt','hw_ntc_undertemperature',
+                                    'hw_ntc_severe_overtemperature','hw_ntc_overtemperature','hw_persistent_short_circuit_discharge',
+                                    'hw_short_circuit_discharge','hw_persistent_overcurrent_discharge','hw_persistent_overcurrent_charge',
+                                    'hw_overcurrent_discharge','hw_overcurrent_charge','hw_vbatt_sum_check_fail','hw_faultn_ext']
+                battery_monitor_data = data[(data['identifier'] == '/battery_monitor.droid_battery_telemetry')][relevant_columns]
+                all_battery_data = pd.concat([all_battery_data, battery_monitor_data])
 
-            #find max and min pack voltage at anytime in this chunk of data
-            max_voltage = battery_monitor_data['pack_voltage'].max()
-            min_voltage = battery_monitor_data['pack_voltage'].min()
+                #find max and min pack voltage at anytime in this chunk of data
+                max_voltage = battery_monitor_data['pack_voltage'].max()
+                min_voltage = battery_monitor_data['pack_voltage'].min()
 
-            #check against criteria
-            max_voltage_okay = max_voltage < MAX_VOLTAGE_CRITERIA
-            min_voltage_okay = min_voltage > MIN_VOLTAGE_CRITERIA
+                #check against criteria
+                max_voltage_okay = max_voltage < MAX_VOLTAGE_CRITERIA
+                min_voltage_okay = min_voltage > MIN_VOLTAGE_CRITERIA
 
-            #update list of maxima/minima
-            chunks_max_voltage.append(max_voltage)
-            chunks_min_voltage.append(min_voltage)
+                #update list of maxima/minima
+                chunks_max_voltage.append(max_voltage)
+                chunks_min_voltage.append(min_voltage)
 
-            #make column of highest and lowest cell brick voltages to find brick deltas
-            highest_brick_voltage = battery_monitor_data.filter(like='brick_voltage[').max(axis=1)
-            lowest_brick_voltage = battery_monitor_data.filter(like='brick_voltage[').min(axis=1)
-            brick_delta_raw = highest_brick_voltage - lowest_brick_voltage
-            max_delta_delta = 0.1   #value of cahnge in brick delta to ignore
-            brick_delta_delta = brick_delta_raw.diff().shift(-1).abs()
-            brick_delta_delta.iloc[-1] = brick_delta_delta.iloc[-2]   #fill the last value with the second to last value
-            brick_delta = brick_delta_raw[brick_delta_delta < max_delta_delta]   #remove any brick deltas that change too much
-            max_brick_delta = brick_delta.max()
-            brick_delta_okay = max_brick_delta < BRICK_DELTA_CRITERIA
-            #update list of drick deltas
-            chunks_max_brick_delta.append(max_brick_delta)
-            brick_delta_data = pd.concat([brick_delta_data, pd.DataFrame({'time': battery_monitor_data['approx_realtime_sec'], 'brick_delta': brick_delta, 'brick_delta_raw': brick_delta_raw})])
+                #make column of highest and lowest cell brick voltages to find brick deltas
+                highest_brick_voltage = battery_monitor_data.filter(like='brick_voltage[').max(axis=1)
+                lowest_brick_voltage = battery_monitor_data.filter(like='brick_voltage[').min(axis=1)
+                brick_delta_raw = highest_brick_voltage - lowest_brick_voltage
+                max_delta_delta = 0.1   #value of cahnge in brick delta to ignore
+                brick_delta_delta = brick_delta_raw.diff().shift(-1).abs()
+                brick_delta_delta.iloc[-1] = brick_delta_delta.iloc[-2]   #fill the last value with the second to last value
+                brick_delta = brick_delta_raw[brick_delta_delta < max_delta_delta]   #remove any brick deltas that change too much
+                max_brick_delta = brick_delta.max()
+                brick_delta_okay = max_brick_delta < BRICK_DELTA_CRITERIA
+                #update list of drick deltas
+                chunks_max_brick_delta.append(max_brick_delta)
+                brick_delta_data = pd.concat([brick_delta_data, pd.DataFrame({'time': battery_monitor_data['approx_realtime_sec'], 'brick_delta': brick_delta, 'brick_delta_raw': brick_delta_raw})])
 
-            #check max and min cell voltages
-            max_brick_voltage = highest_brick_voltage.max()
-            min_brick_voltage = lowest_brick_voltage.min()
-            max_brick_voltage_okay = max_brick_voltage < MAX_BRICK_VOLTAGE_CRITERIA
-            min_brick_voltage_okay = min_brick_voltage > MIN_BRICK_VOLTAGE_CRITERIA
-            chunks_max_brick_voltage.append(max_brick_voltage)
-            chunks_min_brick_voltage.append(min_brick_voltage)
+                #check max and min cell voltages
+                max_brick_voltage = highest_brick_voltage.max()
+                min_brick_voltage = lowest_brick_voltage.min()
+                max_brick_voltage_okay = max_brick_voltage < MAX_BRICK_VOLTAGE_CRITERIA
+                min_brick_voltage_okay = min_brick_voltage > MIN_BRICK_VOLTAGE_CRITERIA
+                chunks_max_brick_voltage.append(max_brick_voltage)
+                chunks_min_brick_voltage.append(min_brick_voltage)
 
-            #check that every entry in columns starting with "brick_voltage[" is a numeric value
-            brick_voltages_okay = []
-            for column in battery_monitor_data.filter(like='brick_voltage['):
-                if pd.to_numeric(battery_monitor_data[column], errors='coerce').notna().all():
-                    brick_voltages_okay.append(True)
-                else:    
-                    brick_voltages_okay.append(False)
-            missing_brick_voltages = [i+1 for i, x in enumerate(brick_voltages_okay) if not x]
-            all_brick_voltages_okay = all(brick_voltages_okay)
-            #update set of missing brick voltages
-            for brick in missing_brick_voltages:
-                overall_missing_brick_voltages.add(brick)  
+                #check that every entry in columns starting with "brick_voltage[" is a numeric value
+                brick_voltages_okay = []
+                for column in battery_monitor_data.filter(like='brick_voltage['):
+                    if pd.to_numeric(battery_monitor_data[column], errors='coerce').notna().all():
+                        brick_voltages_okay.append(True)
+                    else:    
+                        brick_voltages_okay.append(False)
+                missing_brick_voltages = [i+1 for i, x in enumerate(brick_voltages_okay) if not x]
+                all_brick_voltages_okay = all(brick_voltages_okay)
+                #update set of missing brick voltages
+                for brick in missing_brick_voltages:
+                    overall_missing_brick_voltages.add(brick)  
 
-            #check that every entry in columns starting with brick_heater_temperature is a numeric value in a reasonable range
-            temperatures_okay = []
-            for column in battery_monitor_data.filter(like='brick_heater_temperature'):
-                if pd.to_numeric(battery_monitor_data[column], errors='coerce').between(MIN_CELL_TEMP_CRITERIA, MAX_CELL_TEMP_CRITERIA).all():
-                    temperatures_okay.append(True)
-                else:    
-                    temperatures_okay.append(False)
-            missing_temperatures = [i+1 for i, x in enumerate(temperatures_okay) if not x]
-            all_temperatures_okay = all(temperatures_okay)
-            #update set of missing temperatures
-            for temp in missing_temperatures:
-                overall_missing_temperatures.add(temp)
+                #check that every entry in columns starting with brick_heater_temperature is a numeric value in a reasonable range
+                temperatures_okay = []
+                for column in battery_monitor_data.filter(like='brick_heater_temperature'):
+                    if pd.to_numeric(battery_monitor_data[column], errors='coerce').between(MIN_CELL_TEMP_CRITERIA, MAX_CELL_TEMP_CRITERIA).all():
+                        temperatures_okay.append(True)
+                    else:    
+                        temperatures_okay.append(False)
+                missing_temperatures = [i+1 for i, x in enumerate(temperatures_okay) if not x]
+                all_temperatures_okay = all(temperatures_okay)
+                #update set of missing temperatures
+                for temp in missing_temperatures:
+                    overall_missing_temperatures.add(temp)
 
-            #compare pack current measurements to current shunt measurements
-            new_data = perform_average_and_update_data(data, '', CURRENT_SAMPLING_INTERVAL)
-            if not new_data.empty:
-                new_data['pack_current_smoothed'] = new_data['pack_current'].rolling(window=10).mean()
-                new_data['shunt_current_smoothed'] = new_data['shunt_current'].rolling(window=10).mean()
-                new_data['current_error'] = new_data['shunt_current_smoothed'] - new_data['pack_current_smoothed']
-                current_error_okay = new_data['current_error'].fillna(0).abs().max() < CURRENT_ERROR_CRITERIA
-            else:
-                current_error_okay = True
-            current_sampling_data = pd.concat([current_sampling_data, new_data])
+                #compare pack current measurements to current shunt measurements
+                new_data = perform_average_and_update_data(data, '', CURRENT_SAMPLING_INTERVAL)
+                if not new_data.empty:
+                    new_data['pack_current_smoothed'] = new_data['pack_current'].rolling(window=10).mean()
+                    new_data['shunt_current_smoothed'] = new_data['shunt_current'].rolling(window=10).mean()
+                    new_data['current_error'] = new_data['shunt_current_smoothed'] - new_data['pack_current_smoothed']
+                    current_error_okay = new_data['current_error'].fillna(0).abs().max() < CURRENT_ERROR_CRITERIA
+                else:
+                    current_error_okay = True
+                current_sampling_data = pd.concat([current_sampling_data, new_data])
 
-            #check that during the VSYS test, the current is within the expected range
-            new_data = perform_average_and_update_data(data, 'VSYS_ON', VSYS_SAMPLING_INTERVAL)
-            if not new_data.empty:
-                new_data['vsys_ideal_current'] = new_data['pack_voltage'] / VSYS_RESISTOR
-                new_data['vsys_current_error'] = new_data['sys_current'] - new_data['vsys_ideal_current']
-                new_data.loc[abs(new_data['sys_current']) < 0.75 * (NOMINAL_VOLTAGE / VSYS_RESISTOR), 'vsys_current_error'] = 0       #when vsys curent is less than 75% of expected value, it's probably off, so don't evaluate error  
-                vsys_current_error_okay = new_data['vsys_current_error'].abs().max() < VSYS_ERROR_CRITERIA
-            else:
-                vsys_current_error_okay = True
-            vsys_data = pd.concat([vsys_data, new_data])
-            
-            #check heater resistance values
-            heater_rows = data[data['step_name'].str.contains('HEATER_ON')]
-            if not heater_rows.empty:
-                min_heater_resistance = heater_rows[heater_rows['identifier'] == '/htf.bk_power_supply.status']['resistance'].min()
-                max_heater_resistance = heater_rows[heater_rows['identifier'] == '/htf.bk_power_supply.status']['resistance'].max()
-                heater_resistance_okay = True
-                if min_heater_resistance > 0:
-                    chunks_min_heater_resistance.append(min_heater_resistance)
-                    heater_resistance_okay = heater_resistance_okay and (min_heater_resistance > HEATER_MIN_RESISTANCE_CRITERIA)
-                if max_heater_resistance > 0:
-                    chunks_max_heater_resistance.append(max_heater_resistance)
-                    heater_resistance_okay = heater_resistance_okay and (max_heater_resistance < HEATER_MAX_RESISTANCE_CRITERIA)
-                heater_temps = heater_temps + (heater_rows['brick_heater_temperature[thermistor_brick1]'].dropna().to_list())
-            else:
-                heater_resistance_okay = True
+                #check that during the VSYS test, the current is within the expected range
+                new_data = perform_average_and_update_data(data, 'VSYS_ON', VSYS_SAMPLING_INTERVAL)
+                if not new_data.empty:
+                    new_data['vsys_ideal_current'] = new_data['pack_voltage'] / VSYS_RESISTOR
+                    new_data['vsys_current_error'] = new_data['sys_current'] - new_data['vsys_ideal_current']
+                    new_data.loc[abs(new_data['sys_current']) < 0.75 * (NOMINAL_VOLTAGE / VSYS_RESISTOR), 'vsys_current_error'] = 0       #when vsys curent is less than 75% of expected value, it's probably off, so don't evaluate error  
+                    vsys_current_error_okay = new_data['vsys_current_error'].abs().max() < VSYS_ERROR_CRITERIA
+                else:
+                    vsys_current_error_okay = True
+                vsys_data = pd.concat([vsys_data, new_data])
                 
-            #check dock thermistor
-            max_dock_resitance = data['dock_thermistor_resistance'].max()
-            min_dock_resitance = data['dock_thermistor_resistance'].min()
-            if max_dock_resitance > 0 and min_dock_resitance > 0:
-                dock_resistance_okay = (max_dock_resitance < DOCK_MAX_RESISTANCE_CRITERIA) and (min_dock_resitance > DOCK_MIN_RESISTANCE_CRITERIA)
-            else:
-                dock_resistance_okay = True
-            chunks_max_dock_resistance.append(max_dock_resitance)
-            chunks_min_dock_resistance.append(min_dock_resitance)
-            
-            #evaluate chunk test pass
-            chunk_passed = all([max_voltage_okay,
-                        min_voltage_okay,
-                        brick_delta_okay,
-                        max_brick_voltage_okay,
-                        min_brick_voltage_okay,
-                        all_brick_voltages_okay,
-                        all_temperatures_okay, 
-                        current_error_okay,
-                        vsys_current_error_okay,
-                        heater_resistance_okay,
-                        dock_resistance_okay,
-                            ])
-        
+                #check heater resistance values
+                heater_rows = data[data['step_name'].str.contains('HEATER_ON')]
+                if not heater_rows.empty:
+                    min_heater_resistance = heater_rows[heater_rows['identifier'] == '/htf.bk_power_supply.status']['resistance'].min()
+                    max_heater_resistance = heater_rows[heater_rows['identifier'] == '/htf.bk_power_supply.status']['resistance'].max()
+                    heater_resistance_okay = True
+                    if min_heater_resistance > 0:
+                        chunks_min_heater_resistance.append(min_heater_resistance)
+                        heater_resistance_okay = heater_resistance_okay and (min_heater_resistance > HEATER_MIN_RESISTANCE_CRITERIA)
+                    if max_heater_resistance > 0:
+                        chunks_max_heater_resistance.append(max_heater_resistance)
+                        heater_resistance_okay = heater_resistance_okay and (max_heater_resistance < HEATER_MAX_RESISTANCE_CRITERIA)
+                    heater_temps = heater_temps + (heater_rows['brick_heater_temperature[thermistor_brick1]'].dropna().to_list())
+                else:
+                    heater_resistance_okay = True
+                    
+                #check dock thermistor
+                max_dock_resitance = data['dock_thermistor_resistance'].max()
+                min_dock_resitance = data['dock_thermistor_resistance'].min()
+                if max_dock_resitance > 0 and min_dock_resitance > 0:
+                    dock_resistance_okay = (max_dock_resitance < DOCK_MAX_RESISTANCE_CRITERIA) and (min_dock_resitance > DOCK_MIN_RESISTANCE_CRITERIA)
+                else:
+                    dock_resistance_okay = True
+                chunks_max_dock_resistance.append(max_dock_resitance)
+                chunks_min_dock_resistance.append(min_dock_resitance)
+                
+                #evaluate chunk test pass
+                chunk_passed = all([max_voltage_okay,
+                            min_voltage_okay,
+                            brick_delta_okay,
+                            max_brick_voltage_okay,
+                            min_brick_voltage_okay,
+                            all_brick_voltages_okay,
+                            all_temperatures_okay, 
+                            current_error_okay,
+                            vsys_current_error_okay,
+                            heater_resistance_okay,
+                            dock_resistance_okay,
+                                ])
+            except:
+                print('Error processing chunk. Potentially due to missing columns.')
         else:   #if the chunk is empty, all parsing is skipped and the chunk is a pass
             print('empty chunk')
             chunk_passed = True

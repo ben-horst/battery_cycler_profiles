@@ -45,8 +45,16 @@ def plot_all_cells():
     with open(file_path, 'rb') as file:
         data = pickle.load(file)
         battery_data = data['all_battery_data']
+        fig, ax1 = plt.subplots()
+        ax2 = ax1.twinx()
         for i in range(0, 14):
-            plt.plot(battery_data['approx_realtime_sec'], battery_data[f'brick_voltage[{i}]'], label=f'Brick {i}')
+            ax1.plot(battery_data['approx_realtime_sec'], battery_data[f'brick_voltage[{i}]'], label=f'Brick {i}')
+        ax2.plot(battery_data['approx_realtime_sec'].to_numpy(), battery_data['pack_current'].to_numpy(), label='Pack Current', color='black')
+        ax1.set_ylabel('Voltage (V)')
+        ax2.set_ylabel('Current (A)')
+        ax1.set_xlabel('Time (s)')
+        fig.legend(loc='upper right')
+        plt.title('Brick Voltages and Pack Current')
         plt.legend()
         plt.xlabel('Time (s)')
         plt.ylabel('Voltage (V)')
@@ -76,6 +84,6 @@ def plot_current_error():
 
 
 #plot_pack_voltage_and_current()
-#plot_all_cells()
-plot_current_error()
+plot_all_cells()
+#plot_current_error()
 
